@@ -1,0 +1,9 @@
+{
+  "anchor_date": "2026-06-14",
+  "dataset_revision": "2026.06.12.2",
+  "pages_scraped": 3,
+  "reservation_ids_count": 254,
+  "reservation_ids_sha256": "aea16e722cb664db652aafc238066566537dc2f9013d2b51b14dd5d22272e85c",
+  "source_url": "https://otel-hackathon-data-site.vercel.app",
+  "notes": "reservation_ids_sha256 = sha256 of sorted distinct reservation_id lines; must match count(distinct reservation_id) in DB and total_reservations on /verify."
+}
