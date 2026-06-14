@@ -1,0 +1,7 @@
+{
+  "anchor_date": "2026-06-12",
+  "pages_scraped": 0,
+  "reservation_ids_count": 0,
+  "reservation_ids_sha256": "<sha256 of sorted reservation_id lines, one per line>",
+  "notes": "Populate after scrape. reservation_ids_count must match total_reservations on /verify and count(distinct reservation_id) in your DB."
+}

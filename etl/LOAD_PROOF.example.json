@@ -1,0 +1,32 @@
+{
+  "version": 2,
+  "generated_at": "2026-06-12T12:00:00+00:00",
+  "command": "python scripts/compute_load_fingerprint.py --output etl/LOAD_PROOF.json",
+  "database_url_redacted": "postgresql://***:***@localhost:5432/hotel_hackathon",
+  "row_counts": {
+    "reservations_hackathon": 0,
+    "room_type_lookup": 0,
+    "rate_plan_lookup": 0,
+    "market_code_lookup": 0,
+    "market_macro_group_history": 0,
+    "channel_code_lookup": 0,
+    "load_manifest": 0
+  },
+  "reservation_stay_status_sha256": "<sha256 of sorted reservation_id|stay_date|financial_status lines>",
+  "dataset_revision": "2026.06.12.2",
+  "load_manifest_row_hash": "<matches reservation_stay_status_sha256>",
+  "load_manifest_scraped_at": "<ISO timestamp>",
+  "aggregates": {
+    "posted_stay_rows": 0,
+    "posted_reservations": 0,
+    "posted_otb_room_nights": 0,
+    "provisional_row_count": 0,
+    "posted_room_revenue": 0,
+    "active_room_nights": 0,
+    "july_2025_posted_total_revenue": 0,
+    "cancelled_reservation_count": 0,
+    "property_date_mismatch_count": 0
+  },
+  "verify_page_url": "https://otel-hackathon-data-site.vercel.app/verify",
+  "notes": "Submit etl/LOAD_PROOF.json after ETL. Populate load_manifest on every run. Reconcile counts with /verify on scrape day."
+}
