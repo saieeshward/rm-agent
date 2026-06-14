@@ -1,0 +1,68 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - link "Grand Harbour Hotel Reservations Portal" [ref=e4] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e5]: Grand Harbour Hotel
+        - generic [ref=e6]: Reservations Portal
+      - navigation [ref=e7]:
+        - link "Reservations" [ref=e8] [cursor=pointer]:
+          - /url: /reservations
+        - link "Reference" [ref=e9] [cursor=pointer]:
+          - /url: /reference
+        - link "Verify" [ref=e10] [cursor=pointer]:
+          - /url: /verify
+  - main [ref=e11]:
+    - article [ref=e12]:
+      - heading "Dataset changelog" [level=1] [ref=e13]
+      - generic [ref=e14]:
+        - heading "2026-06-12 — Reference expansion" [level=2] [ref=e15]
+        - list [ref=e16]:
+          - listitem [ref=e17]:
+            - text: Added
+            - strong [ref=e18]: Rate plans
+            - text: and
+            - strong [ref=e19]: Macro group history
+            - text: "tabs on `/reference`."
+          - listitem [ref=e20]:
+            - code [ref=e21]: PROM
+            - text: macro group reclassified effective 2025-06-01 (Retail → Leisure Group). Join on stay date.
+      - generic [ref=e22]:
+        - heading "2026-06-12 — Detail page fields" [level=2] [ref=e23]
+        - list [ref=e24]:
+          - listitem [ref=e25]:
+            - text: Detail pages show
+            - code [ref=e26]: financial_status
+            - text: (
+            - code [ref=e27]: Posted
+            - text: /
+            - code [ref=e28]: Provisional
+            - text: ).
+          - listitem [ref=e29]:
+            - text: Detail pages show
+            - code [ref=e30]: property_date
+            - text: (hotel business date).
+          - listitem [ref=e31]:
+            - text: UI label
+            - strong [ref=e32]: Commercial rate code
+            - text: maps to column
+            - code [ref=e33]: rate_plan_code
+            - text: .
+      - generic [ref=e34]:
+        - heading "2026-06-12 — Verification" [level=2] [ref=e35]
+        - list [ref=e36]:
+          - listitem [ref=e37]:
+            - code [ref=e38]: /verify
+            - text: exposes
+            - code [ref=e39]: dataset_revision
+            - text: ", posted OTB aggregates, and"
+            - code [ref=e40]: reservation_stay_status_sha256
+            - text: .
+      - paragraph [ref=e41]:
+        - link "Verify your load →" [ref=e42] [cursor=pointer]:
+          - /url: /verify
+  - contentinfo [ref=e43]:
+    - text: Synthetic dataset for the Revenue Manager Agent hackathon. Data is regenerated daily and is always forward-looking from today.
+    - link "Dataset changelog" [ref=e44] [cursor=pointer]:
+      - /url: /changelog
+  - alert [ref=e45]

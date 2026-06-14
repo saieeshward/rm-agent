@@ -1,0 +1,21 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - link "Grand Harbour Hotel Reservations Portal" [ref=e4] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e5]: Grand Harbour Hotel
+        - generic [ref=e6]: Reservations Portal
+      - navigation [ref=e7]:
+        - link "Reservations" [ref=e8] [cursor=pointer]:
+          - /url: /reservations
+        - link "Reference" [ref=e9] [cursor=pointer]:
+          - /url: /reference
+        - link "Verify" [ref=e10] [cursor=pointer]:
+          - /url: /verify
+  - main [ref=e11]:
+    - paragraph [ref=e12]: Loading reservation R0001…
+  - contentinfo [ref=e13]:
+    - text: Synthetic dataset for the Revenue Manager Agent hackathon. Data is regenerated daily and is always forward-looking from today.
+    - link "Dataset changelog" [ref=e14] [cursor=pointer]:
+      - /url: /changelog
+  - alert [ref=e15]
