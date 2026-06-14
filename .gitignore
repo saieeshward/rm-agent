@@ -27,3 +27,7 @@ node_modules/
 # OS / editor
 .DS_Store
 *.log
+
+# ETL raw scrape cache
+etl/.cache/
+.playwright-mcp/
