@@ -16,6 +16,17 @@ from public.reservations_hackathon r
 where r.reservation_status <> 'Cancelled'
   and r.financial_status = 'Posted';
 
+-- Posted rows INCLUDING cancelled (provisional still excluded). Backs the
+-- non-default paths the contract requires but vw_stay_night_base cannot serve:
+-- get_otb_summary(exclude_cancelled=False) and get_as_of_otb (which must see
+-- cancelled rows to evaluate cancellation_datetime > as_of). Tools still read a
+-- view, never reservations_hackathon directly.
+create or replace view public.vw_stay_night_posted as
+select
+  r.*
+from public.reservations_hackathon r
+where r.financial_status = 'Posted';
+
 -- Segment view: base + market_name + stay-date-effective macro_group.
 -- macro_group is effective-dated (e.g. PROM: Retail -> Leisure Group at
 -- 2025-06-01), so we resolve it against market_macro_group_history on stay_date
