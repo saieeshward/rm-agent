@@ -384,6 +384,79 @@ def get_block_vs_transient_mix(stay_month: str) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# 6. get_adr_by_room_type  (supplementary; answers "highest ADR room type")
+# --------------------------------------------------------------------------- #
+def get_adr_by_room_type(stay_month: str | None = None) -> dict:
+    """
+    ADR by room type for the OTB universe (vw_stay_night_base), joined to
+    room_type_lookup for human names. Supplementary to the five required tools.
+
+    Grain: aggregates by space_type. Two ADR notions are returned because the
+    dataset carries both:
+      - adr_room_avg            = avg(adr_room) over DISTINCT reservations
+                                  (the reservation-level rate; matches /verify's
+                                  adr_by_room_type definition)
+      - revenue_per_room_night  = sum(daily_room_revenue_before_tax)
+                                  / sum(number_of_spaces)  (realised ADR/room-night)
+    Also returns reservation_count (distinct) and room_nights (sum number_of_spaces).
+    Pass stay_month='YYYY-MM' to scope to a month; omit for all OTB. Ordered by
+    adr_room_avg descending so the highest-ADR room type is first.
+    """
+    month_filter = ""
+    params: list[Any] = []
+    if stay_month not in (None, ""):
+        start, end = _month_range(stay_month)
+        month_filter = "where stay_date >= %s and stay_date < %s"
+        params = [start, end]
+
+    # adr_room_avg is averaged over DISTINCT reservations (reservation-level rate),
+    # while room_nights / room_revenue are summed over stay rows: two grains.
+    rows = query(
+        f"""
+        with res as (
+          select distinct reservation_id, space_type, adr_room
+          from public.vw_stay_night_base {month_filter}
+        ),
+        nights as (
+          select space_type,
+                 count(distinct reservation_id)                   as reservation_count,
+                 coalesce(sum(number_of_spaces), 0)               as room_nights,
+                 coalesce(sum(daily_room_revenue_before_tax), 0)  as room_revenue
+          from public.vw_stay_night_base {month_filter}
+          group by space_type
+        )
+        select n.space_type, rt.room_class, rt.display_name,
+               n.reservation_count, n.room_nights, n.room_revenue,
+               round(avg(r.adr_room), 2) as adr_room_avg
+        from nights n
+        join public.room_type_lookup rt on rt.space_type = n.space_type
+        join res r on r.space_type = n.space_type
+        group by n.space_type, rt.room_class, rt.display_name,
+                 n.reservation_count, n.room_nights, n.room_revenue
+        order by adr_room_avg desc nulls last, n.space_type
+        """,
+        params + params,
+    )
+    return {
+        "stay_month": stay_month if stay_month not in (None, "") else None,
+        "room_types": [
+            {
+                "space_type": r["space_type"],
+                "room_class": r["room_class"],
+                "display_name": r["display_name"],
+                "reservation_count": _i(r["reservation_count"]),
+                "room_nights": _i(r["room_nights"]),
+                "adr_room_avg": _money(r["adr_room_avg"]),
+                "revenue_per_room_night": round(_f(r["room_revenue"]) / _i(r["room_nights"]), 2)
+                if _i(r["room_nights"]) else 0.0,
+            }
+            for r in rows
+        ],
+    }
+
+
+# The five tools the brief mandates by exact name (no run_sql escape hatch).
 REQUIRED_TOOLS = [
     get_otb_summary,
     get_segment_mix,
@@ -391,3 +464,6 @@ REQUIRED_TOOLS = [
     get_as_of_otb,
     get_block_vs_transient_mix,
 ]
+
+# All agent-facing tools (required five + supplementary ADR tool).
+ALL_TOOLS = REQUIRED_TOOLS + [get_adr_by_room_type]

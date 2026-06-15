@@ -1,5 +1,5 @@
   [x] 1. Scrape the live data site (Playwright, 100/page, list → detail) and load it into Postgres via an idempotent ETL. Match your load to /verify on scrape day.
-  2. Build 2 SQL views + 5 exact tools (get_otb_summary, get_segment_mix, get_pickup_delta, get_as_of_otb, get_block_vs_transient_mix) that read views only — no
+  [x] 2. Build 2 SQL views + 5 exact tools (get_otb_summary, get_segment_mix, get_pickup_delta, get_as_of_otb, get_block_vs_transient_mix) that read views only — no
   raw-SQL tool. Bake grain/cancellation/date/revenue rules into the code.
   3. Write ≥6 skills (≥3 with a numeric threshold + recommended action) that teach revenue-manager judgment, not just metric definitions.
   4. Wire a LangChain Deep Agent using all building blocks: tools, skills, a subagent (segment work), planning, memory, and HITL approval on get_as_of_otb.
