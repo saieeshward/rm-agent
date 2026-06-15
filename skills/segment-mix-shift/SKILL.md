@@ -9,8 +9,9 @@ description: "Use when the GM asks what's driving a month, how the segment/marke
 `share_of_revenue`, `share_of_room_nights`. The view already applies the
 stay-date-effective macro group (e.g. PROM is Leisure Group, not Retail, after its
 2025-06-01 reclassification) — trust it. Pull STLY (same month, year−1) and call
-out which segments grew or shrank. Use `macro_group="Retail"` / `"Corporate"` to
-size a macro group cleanly.
+out which segments grew or shrank. For "what share is corporate / MICE / retail?",
+read the pre-computed `macro_rollup` (each macro group's share) — never sum segment
+shares yourself; `macro_group="Retail"` also filters to one group cleanly.
 
 **Decide:**
 

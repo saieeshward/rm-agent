@@ -197,6 +197,25 @@ def test_otb_comparison_bridge_is_exact(busiest_month):
     assert b["primary_driver"] in ("rate", "volume")
 
 
+# --- supplementary: derived numbers are pre-computed (model never does the math) #
+def test_macro_rollup_and_named_concentration(busiest_month):
+    m = get_segment_mix(busiest_month)
+    assert m["macro_rollup"], "macro_rollup must be precomputed"
+    # rollup shares sum to ~1 over all macro groups (no model summing needed)
+    assert abs(sum(g["share_of_revenue"] for g in m["macro_rollup"]) - 1.0) < 1e-6
+    b = get_block_vs_transient_mix(busiest_month)
+    # named-account concentration excludes the Transient bucket and is <= the incl-Transient figure
+    assert b["top3_named_company_revenue_share"] <= b["top3_company_revenue_share"] + 1e-9
+    assert all(c["company"] != "Transient" for c in b["top_named_companies"])
+
+
+def test_cancellation_summary_in_code():
+    from tools.revenue_tools import get_cancellation_summary
+    c = get_cancellation_summary("2099-01")           # empty month must not break
+    assert c["cancelled_share_of_revenue"] == 0.0
+    assert get_cancellation_summary("2026-06")["cancelled_revenue"] >= 0
+
+
 def test_no_raw_sql_parameter():
     forbidden = {"sql", "query", "q", "statement", "stmt"}
     for fn in ALL_TOOLS:

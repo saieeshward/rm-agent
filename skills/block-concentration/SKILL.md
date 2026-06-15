@@ -20,11 +20,11 @@ room left to protect.
 | top named accounts > 40% of revenue | key-account risk | require deposits / attrition clauses; **hold BAR** for transient |
 | single company > 25% of revenue | single-account dependency | escalate; lock contract terms |
 
-**Exclude the Transient bucket from concentration.** `top_companies` maps bookings
-with no company to a `'Transient'` row, so `top3_company_revenue_share` can include
-it and overstate key-account risk. Judge concentration on the **named** companies
-only — sum the real company rows (skip `'Transient'`) before applying the >40% /
->25% thresholds.
+**Use the named-account fields for concentration.** Judge key-account risk on
+`top3_named_company_revenue_share(_pct)` and `top_named_companies` — these already
+exclude the `'Transient'` (no-company) bucket and are pre-computed, so never sum
+companies yourself. (`top3_company_revenue_share` includes the Transient bucket and
+overstates concentration — don't use it for the >40% / >25% thresholds.)
 
 *Why these levels:* >50% block means group is setting the month, so transient
 upside is capped; >40% in a few accounts means one cancellation reshapes the

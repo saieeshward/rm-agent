@@ -5,11 +5,11 @@ description: "Use when the GM asks how much was cancelled, attrition, wash, or h
 
 # Cancellation risk / attrition
 
-**Do (exact).** Cancelled share: `get_otb_summary(month, exclude_cancelled=False)`
-minus the default `get_otb_summary(month)` — the difference is the cancelled
-(Posted) business; report it as a % of the all-in total. Attrition over time:
-`get_as_of_otb(month, earlier_utc)` vs today's OTB — a higher past figure means
-business has washed out since.
+**Do (exact).** Cancelled share: call `get_cancellation_summary(month)` — it returns
+`cancelled_revenue`, `all_in_revenue` and `cancelled_share_of_revenue(_pct)` already
+computed (never subtract two OTB calls yourself). Attrition over time:
+`get_as_of_otb(month, earlier_utc)` vs today's `get_otb_summary(month)` — a higher
+past figure means business has washed out since.
 
 **Decide:**
 

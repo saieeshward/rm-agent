@@ -91,6 +91,11 @@ def _share(part: Any, whole: float) -> float:
     return (_f(part) / whole) if whole else 0.0
 
 
+def _pct_of(part: Any, whole: float) -> float:
+    """Share as a percentage (1 dp), so the model never multiplies by 100."""
+    return round(_f(part) / whole * 100, 1) if whole else 0.0
+
+
 def _agg(sql: str, params: tuple | list) -> dict[str, Any]:
     """query_one for an aggregate SELECT (always one row); never None."""
     return query_one(sql, params) or {}
@@ -187,9 +192,27 @@ def get_segment_mix(stay_month: str, macro_group: str | None = None) -> dict:
             "total_revenue": _money(r["total_revenue"]),
             "share_of_room_nights": _share(r["room_nights"], denom_rn),
             "share_of_revenue": _share(r["total_revenue"], denom_rev),
+            "share_of_revenue_pct": _pct_of(r["total_revenue"], denom_rev),
         }
         for r in rows
     ]
+    # macro-group rollup, computed in code (so "what share is corporate/MICE?" is a field)
+    roll: dict[str, dict[str, float]] = {}
+    for r in rows:
+        g = roll.setdefault(r["macro_group"], {"room_nights": 0.0, "total_revenue": 0.0})
+        g["room_nights"] += _i(r["room_nights"])
+        g["total_revenue"] += _f(r["total_revenue"])
+    macro_rollup = sorted(
+        ({
+            "macro_group": g,
+            "room_nights": int(v["room_nights"]),
+            "total_revenue": round(v["total_revenue"], 2),
+            "share_of_room_nights": _share(v["room_nights"], denom_rn),
+            "share_of_revenue": _share(v["total_revenue"], denom_rev),
+            "share_of_revenue_pct": _pct_of(v["total_revenue"], denom_rev),
+        } for g, v in roll.items()),
+        key=lambda x: x["total_revenue"], reverse=True,
+    )
     return {
         "stay_month": stay_month,
         "macro_group": macro_group if macro_group not in (None, "") else None,
@@ -197,6 +220,7 @@ def get_segment_mix(stay_month: str, macro_group: str | None = None) -> dict:
         "denominator_room_nights": int(denom_rn),
         "denominator_revenue": round(denom_rev, 2),
         "segments": segments,
+        "macro_rollup": macro_rollup,
     }
 
 
@@ -358,12 +382,29 @@ def get_block_vs_transient_mix(stay_month: str) -> dict:
         """,
         (start, end),
     )
+    # named accounts only (exclude the Transient/no-company bucket) — the honest
+    # key-account concentration, computed in code so the model never sums/divides.
+    named = query(
+        """
+        select
+          company_name                                     as company,
+          coalesce(sum(daily_total_revenue_before_tax), 0) as revenue,
+          coalesce(sum(number_of_spaces), 0)               as room_nights
+        from public.vw_stay_night_base
+        where stay_date >= %s and stay_date < %s and company_name is not null
+        group by company_name
+        order by revenue desc, company_name
+        limit 3
+        """,
+        (start, end),
+    )
 
     block_rn = _i(agg.get("block_room_nights"))
     trans_rn = _i(agg.get("transient_room_nights"))
     total_rn = float(block_rn + trans_rn)
     total_rev = _f(agg.get("month_total_revenue"))
     top3_rev = sum(_f(c["revenue"]) for c in companies)
+    named_top3_rev = sum(_f(c["revenue"]) for c in named)
     return {
         "stay_month": stay_month,
         "block_room_nights": block_rn,
@@ -372,6 +413,7 @@ def get_block_vs_transient_mix(stay_month: str) -> dict:
         "transient_total_revenue": _money(agg.get("transient_total_revenue")),
         "block_share_of_room_nights": _share(block_rn, total_rn),
         "block_share_of_revenue": _share(agg.get("block_total_revenue"), total_rev),
+        "block_share_of_revenue_pct": _pct_of(agg.get("block_total_revenue"), total_rev),
         "top_companies": [
             {
                 "company": c["company"],
@@ -381,6 +423,19 @@ def get_block_vs_transient_mix(stay_month: str) -> dict:
             for c in companies
         ],
         "top3_company_revenue_share": _share(top3_rev, total_rev),
+        # named-account concentration (Transient bucket excluded) — use THIS for key-account risk
+        "top_named_companies": [
+            {
+                "company": c["company"],
+                "total_revenue": _money(c["revenue"]),
+                "room_nights": _i(c["room_nights"]),
+                "share_of_revenue": _share(c["revenue"], total_rev),
+                "share_of_revenue_pct": _pct_of(c["revenue"], total_rev),
+            }
+            for c in named
+        ],
+        "top3_named_company_revenue_share": _share(named_top3_rev, total_rev),
+        "top3_named_company_revenue_share_pct": _pct_of(named_top3_rev, total_rev),
     }
 
 
@@ -582,6 +637,50 @@ def get_otb_comparison(stay_month: str) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# 9. get_cancellation_summary  (supplementary; cancelled delta computed in code)
+# --------------------------------------------------------------------------- #
+def get_cancellation_summary(stay_month: str) -> dict:
+    """
+    Cancellation summary for a stay month — the cancelled vs on-the-books split,
+    computed in code so the model never subtracts two OTB calls.
+
+    Reads vw_stay_night_posted (Posted, incl. cancelled). Grain: stay-date rows;
+    reservation counts use distinct reservation_id, room nights = sum(number_of_spaces).
+    Returns cancelled_rows, cancelled_reservations, cancelled_room_nights,
+    cancelled_revenue, the all-in (Posted incl. cancelled) total_revenue, active
+    (non-cancelled) revenue, and cancelled_share_of_revenue (cancelled / all-in, 0-1)
+    plus its percentage.
+    """
+    start, end = _month_range(stay_month)
+    row = _agg(
+        """
+        select
+          count(*) filter (where reservation_status = 'Cancelled')                       as cancelled_rows,
+          count(distinct reservation_id) filter (where reservation_status = 'Cancelled')  as cancelled_reservations,
+          coalesce(sum(number_of_spaces) filter (where reservation_status = 'Cancelled'), 0)              as cancelled_room_nights,
+          coalesce(sum(daily_total_revenue_before_tax) filter (where reservation_status = 'Cancelled'), 0) as cancelled_revenue,
+          coalesce(sum(daily_total_revenue_before_tax), 0)                                as all_in_revenue
+        from public.vw_stay_night_posted
+        where stay_date >= %s and stay_date < %s
+        """,
+        (start, end),
+    )
+    cancelled_rev = _f(row.get("cancelled_revenue"))
+    all_in = _f(row.get("all_in_revenue"))
+    return {
+        "stay_month": stay_month,
+        "cancelled_rows": _i(row.get("cancelled_rows")),
+        "cancelled_reservations": _i(row.get("cancelled_reservations")),
+        "cancelled_room_nights": _i(row.get("cancelled_room_nights")),
+        "cancelled_revenue": round(cancelled_rev, 2),
+        "active_revenue": round(all_in - cancelled_rev, 2),
+        "all_in_revenue": round(all_in, 2),
+        "cancelled_share_of_revenue": _share(cancelled_rev, all_in),
+        "cancelled_share_of_revenue_pct": _pct_of(cancelled_rev, all_in),
+    }
+
+
 # The five tools the brief mandates by exact name (no run_sql escape hatch).
 REQUIRED_TOOLS = [
     get_otb_summary,
@@ -593,4 +692,6 @@ REQUIRED_TOOLS = [
 
 # All agent-facing tools (required five + supplementary ADR / booking-pace /
 # year-on-year comparison tools — the supplementary tools keep all arithmetic in code).
-ALL_TOOLS = REQUIRED_TOOLS + [get_adr_by_room_type, get_booking_pace, get_otb_comparison]
+ALL_TOOLS = REQUIRED_TOOLS + [
+    get_adr_by_room_type, get_booking_pace, get_otb_comparison, get_cancellation_summary,
+]
