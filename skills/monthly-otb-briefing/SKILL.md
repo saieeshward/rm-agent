@@ -1,34 +1,29 @@
 ---
 name: monthly-otb-briefing
-description: "Use when the GM asks what revenue/room nights are on the books for a month, how a month is shaping up, or for an OTB summary. Frames get_otb_summary as a morning briefing with the right comparisons."
+description: "Use when the GM asks what revenue/room nights are on the books for a month, how a month is shaping up, or for an OTB summary. NOT for pace/pickup (use pickup-pace) or segment drivers (use segment-mix-shift). Calls get_otb_summary."
 ---
 
 # Monthly OTB briefing
 
-Call `get_otb_summary(stay_month)` for the on-the-books picture: `row_count`
-(stay rows), `reservation_count` (distinct bookings), `room_nights`
-(sum of rooms across nights), `room_revenue`, and `total_revenue`. This is the
-default GM briefing universe: Posted, non-cancelled.
+**Do (exact).** `get_otb_summary(month)` → `reservation_count` (bookings),
+`room_nights`, `room_revenue`, `total_revenue` (Posted, non-cancelled). Always
+pull STLY (same month, year−1) the same way, and the adjacent month, so you can
+say "ahead/behind", not just a figure. Hand the "why" to `segment-mix-shift` or
+`pickup-pace`.
 
-## How to brief, not just dump
+**Decide:**
 
-- Never quote a number alone. Anchor every month to **same time last year** — run
-  `get_otb_summary` on the prior-year month — and to the adjacent months, so the
-  GM hears "ahead/behind" not just a figure.
-- Lead with the headline (room nights and total revenue on the books, vs STLY),
-  then the one driver worth knowing (hand off to `segment-mix-shift` or
-  `pickup-pace` for the "why").
-- Use `total_revenue` for the overall picture and `room_revenue` when the question
-  is specifically about rooms; note that `total_revenue >= room_revenue` because
-  total includes packages.
+| signal | read | action |
+|---|---|---|
+| total revenue behind STLY > 10%, arrival > 60 days out | pace gap, not a loss | **hold BAR**, protect availability, lean on pickup to convert |
+| ahead of STLY > 10% | pricing power | **shift rate** up, tighten discounts vs adding low-rate rooms |
 
-## Thresholds and actions
+Judgment: a number with no comparison is not a briefing. Lead with room nights and
+total revenue vs STLY, then the single driver worth knowing.
 
-- **Total revenue behind STLY by > 10%** with arrival still > 60 days out — pace
-  gap, not a loss; **hold BAR**, protect availability, and lean on `pickup-pace`
-  to convert the open window.
-- **Ahead of STLY by > 10%** — pricing power; **shift rate** up on the strong
-  dates and tighten discount availability rather than adding more low-rate rooms.
+**Answer like.** "September is £42.9k on the books across 230 room nights — about
+12% ahead of STLY and the strongest month in the window. It's group-led, so I'd
+hold BAR and protect transient availability rather than discount."
 
-Quote `reservation_count` for "how many bookings", `room_nights` for occupancy/
-revenue questions — never `row_count`, which is stay rows, not bookings.
+**Don't** quote `row_count` as bookings — that's stay rows. Use `reservation_count`
+for bookings, `room_nights` for occupancy/revenue.

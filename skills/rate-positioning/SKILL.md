@@ -1,33 +1,29 @@
 ---
 name: rate-positioning
-description: "Use when the GM asks about ADR, rate, which room type earns most, rate erosion, or the premium between room classes. Judges ADR by room type and recommends a rate move."
+description: "Use when the GM asks about ADR, rate, which room type earns most, rate erosion, or the premium between room classes. NOT for segment/channel mix — use segment-mix-shift. Calls get_adr_by_room_type and get_otb_summary."
 ---
 
 # Rate positioning / ADR by room type
 
-Call `get_adr_by_room_type(stay_month)` for `adr_room_avg` (reservation-level rate)
-and `revenue_per_room_night` (realised rate per occupied room-night) by room type,
-joined to display names. ADR is the price lever; the judgment is whether rate is
-holding, eroding, or compressed across the room ladder.
+**Do (exact).** `get_adr_by_room_type(month)` → `adr_room_avg` (booked rate) and
+`revenue_per_room_night` (realised rate) per room type, ranked. Compare each to
+STLY (same month, year−1). When ADR looks soft, confirm it's rate not demand with
+`get_otb_summary` (room nights at/ahead of STLY = rate problem, not volume).
 
-## How to judge
+**Decide:**
 
-- Rank room types by `adr_room_avg`; the Executive/premium type should sit clearly
-  above Standard. Check the **premium spread** between the top and entry room
-  class — if it is thin, the rate ladder is compressed and the premium product is
-  underpriced.
-- Compare each room type's ADR to the **same month last year** (`get_adr_by_room_type`
-  on the prior-year month) and to neighbouring months for trend.
-- Read `revenue_per_room_night` vs `adr_room_avg`: realised well below the booked
-  rate signals discounting, comps, or package dilution.
+| signal | read | action |
+|---|---|---|
+| room-type ADR down > 10% vs STLY, pace healthy | rate erosion | **hold BAR**, pull discount codes, **shift rate** up on strong dates |
+| Executive-to-Standard premium < £40 | ladder compressed | reprice the premium room up, protect it from discounting |
+| `revenue_per_room_night` < 90% of `adr_room_avg` | package/comp leakage | review which rate plans erode realised rate |
 
-## Thresholds and actions
+Judgment: the premium room class should sit clearly above standard; thin spread
+means the top product is underpriced, not that demand is weak.
 
-- **ADR down > 10% vs STLY** for a room type with healthy pace — rate erosion, not
-  a demand problem. Confirm the month's demand is sound with `get_otb_summary`
-  (room nights at/ahead of STLY); if so, **hold BAR**, pull back discount codes,
-  and **shift rate** up on the strong dates.
-- **Executive-to-Standard premium < £40** — ladder compressed; reprice the premium
-  room type upward and protect it from discounting.
-- **revenue_per_room_night < 90% of adr_room_avg** — leakage from packages/comps;
-  review which rate plans are eroding realised rate.
+**Answer like.** "Executive King runs £245 ADR vs King £190 and Twin £177 — a
+healthy £55 premium, and all three are flat-to-up vs STLY. No erosion; if
+anything I'd test a small Executive increase on the high-demand weekends."
+
+**Don't** read ADR off raw rows — `revenue_per_room_night` already weights by
+room nights.

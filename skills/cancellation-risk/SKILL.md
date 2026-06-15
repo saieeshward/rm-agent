@@ -1,32 +1,30 @@
 ---
 name: cancellation-risk
-description: "Use when the GM asks how much business was cancelled, attrition, wash, or how firm the book is. Judges the cancelled share of a month and how the on-the-books figure has eroded over time, and recommends a policy move."
+description: "Use when the GM asks how much was cancelled, attrition, wash, or how firm the book is. NOT for current on-the-books (use monthly-otb-briefing). Calls get_otb_summary (exclude_cancelled toggle) and get_as_of_otb."
 ---
 
 # Cancellation risk / attrition
 
-Two reads: the **cancelled share** of a month, and how the book has **eroded over
-time**.
+**Do (exact).** Cancelled share: `get_otb_summary(month, exclude_cancelled=False)`
+minus the default `get_otb_summary(month)` — the difference is the cancelled
+(Posted) business; report it as a % of the all-in total. Attrition over time:
+`get_as_of_otb(month, earlier_utc)` vs today's OTB — a higher past figure means
+business has washed out since.
 
-- Cancelled share: compare `get_otb_summary(month, exclude_cancelled=False)` with
-  the default `get_otb_summary(month)`. The difference is the cancelled
-  (Posted) business in that month — report it as a % of the
-  exclude_cancelled=False total revenue.
-- Attrition over time: use `get_as_of_otb(month, as_of_utc)` at an earlier instant
-  vs the current OTB. A point-in-time figure that was higher than today means
-  bookings have washed out since.
+**Decide:**
 
-## Thresholds and actions
+| signal | read | action |
+|---|---|---|
+| cancelled > 12% of revenue | soft book | **require deposits** / non-refundable on those dates; controlled overbook on peaks |
+| cancelled > 20% | high wash | move new bookings to non-refundable; **review block** attrition clauses |
+| as-of OTB today < as-of 30 days ago | active wash | protect rate, don't chase lost rooms with discounts |
 
-- **Cancelled share > 12% of revenue** for a month — the book is soft. Tighten
-  terms: require deposits or non-refundable rates on the affected dates, and
-  consider controlled overbooking on high-demand nights to offset expected wash.
-- **Cancelled share > 20%** — escalate; move new bookings on those dates to
-  non-refundable and **review block** attrition clauses for group business.
-- **As-of OTB today < as-of OTB 30 days ago** for a future month — active wash;
-  flag the pace reversal and protect rate rather than chasing the lost rooms with
-  discounts.
+Judgment: a little cancellation is normal churn; a rising cancelled share
+concentrated on specific dates is a policy problem, not a demand problem.
 
-Default OTB already excludes cancelled and provisional business; only surface
-cancelled figures when the GM asks about cancellations, and always say the number
-includes cancelled rows so it isn't confused with on-the-books.
+**Answer like.** "June cancelled business is ~3% of the all-in total — well within
+normal churn, no action. (Figure includes cancelled rows; standard on-the-books
+excludes them.)"
+
+**Don't** present cancelled figures as on-the-books — default OTB excludes
+cancelled and provisional; always flag when a number includes them.

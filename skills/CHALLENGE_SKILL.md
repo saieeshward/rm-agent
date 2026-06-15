@@ -1,33 +1,38 @@
 ---
 name: revenue-manager-pack
-description: "Skill pack otel-rm-v2 for the Revenue Manager Agent. Index of revenue-management judgment skills; loaded for any GM commercial question about OTB, pickup, segment/channel mix, group vs transient, ADR, cancellations, or concentration risk."
+description: "Skill pack otel-rm-v2 for the Revenue Manager Agent. Routing index + answer contract for GM commercial questions (OTB, pickup, segment/channel mix, group vs transient, ADR, cancellations, concentration). Load the matching skill below; never answer numbers from memory."
 ---
 
-# Revenue Manager skill pack — `otel-rm-v2`
+# Revenue Manager pack — `otel-rm-v2`
 
-This pack teaches the agent to think like an experienced hotel revenue manager,
-not to recite metric definitions. Every numeric answer comes from the typed tool
-layer (never raw SQL); the skills add interpretation, comparisons, thresholds,
-traps, and a recommended action.
+Numbers come from the typed tools; skills add the judgment. Pick one skill by the
+table, follow its protocol, answer in the contract shape.
 
-## When to load which skill
+## Routing (load exactly one)
 
-| GM question is about… | Load | Primary tool |
+| GM asks about… | Load | Tool |
 |---|---|---|
-| revenue / room nights on the books, "how is <month>?" | `monthly-otb-briefing` | `get_otb_summary` |
-| booking pace, "what changed lately", pickup | `pickup-pace` | `get_pickup_delta` |
-| segment / source mix, "what's driving <month>", corporate vs leisure | `segment-mix-shift` | `get_segment_mix` |
+| revenue / room nights on the books, "how's <month>?" | `monthly-otb-briefing` | `get_otb_summary` |
+| pace, pickup, "what changed lately" | `pickup-pace` | `get_pickup_delta` |
+| what's driving a month, corporate/leisure/MICE mix | `segment-mix-shift` | `get_segment_mix` |
 | OTA / channel reliance, "too dependent on OTA" | `ota-dependency` | `get_segment_mix` |
-| group vs transient, block, key accounts, concentration | `block-concentration` | `get_block_vs_transient_mix` |
-| rate / ADR by room type, rate erosion | `rate-positioning` | `get_adr_by_room_type` |
+| group vs transient, blocks, key-account concentration | `block-concentration` | `get_block_vs_transient_mix` |
+| ADR / rate by room type, rate erosion | `rate-positioning` | `get_adr_by_room_type` |
 | cancellations, attrition, wash | `cancellation-risk` | `get_otb_summary`, `get_as_of_otb` |
-| any answer — before quoting numbers | `filter-guardrail` | all |
+| any answer (safety net) | `filter-guardrail` | all |
 
-## House rules (apply to every answer)
+## Answer contract (every reply)
 
-- Default universe is Posted + non-cancelled (the tools enforce it). Only include
-  cancelled or provisional business when the GM explicitly asks, and say so.
-- Always compare: vs prior month and vs **same time last year (STLY)** — call
-  `get_otb_summary` on the prior-year month. A number with no comparison is not
-  judgment.
-- Lead with the decision: what is changing, why it matters, what to do next.
+1. **Headline** — the decision/finding in one sentence.
+2. **Numbers** — the figure, always vs **STLY** (same month, year−1) and/or prior month.
+3. **Driver** — the one reason that matters.
+4. **Recommendation** — a concrete action.
+5. **Caveat** — only if a filter assumption was made (e.g. cancelled excluded).
+
+## House rules
+
+- Default universe is Posted + non-cancelled (tools enforce it). Include cancelled
+  or provisional only on explicit request, and say so.
+- **STLY is mechanical:** the prior-year month is the same month with the year
+  minus one (e.g. `2026-07` → `2025-07`). Call the same tool on it.
+- Lead with the decision, not the dashboard.

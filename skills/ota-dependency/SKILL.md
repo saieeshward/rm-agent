@@ -1,35 +1,30 @@
 ---
 name: ota-dependency
-description: "Use when the GM asks whether the hotel is too dependent on OTA, about channel reliance, Booking.com/Expedia exposure, or direct-vs-OTA share. Judges OTA concentration of revenue and recommends an action."
+description: "Use when the GM asks 'are we too dependent on OTA', about Booking.com/Expedia exposure, commission cost, OTA share, or direct-vs-OTA balance. NOT for overall segment drivers — use segment-mix-shift. Calls get_segment_mix."
 ---
 
-# OTA dependency / channel concentration
+# OTA dependency
 
-Pull the segment mix with `get_segment_mix(stay_month)` and read OTA's
-`share_of_revenue` (and `share_of_room_nights`). OTA is acquisition cost you pay
-on every booking, so the judgment is about *how much margin you are renting*.
+**Do (exact).** `get_segment_mix(month)` → read OTA `share_of_revenue`. Pull STLY
+(same month, year−1) the same way to see if the share is rising. If the date is
+high-demand, confirm with `get_otb_summary` before acting.
 
-## Thresholds (share_of_revenue)
+**Decide** — OTA `share_of_revenue`:
 
-- **< 15%** — healthy/low. OTA is a useful flex channel; in soft months you can
-  lean on it more, not less.
-- **15–25%** — normal. Monitor; no action.
-- **25–35%** — elevated. Defend direct: tighten OTA allocation in high-demand
-  dates, enforce rate parity, and **hold BAR** so OTA never undercuts the website.
-- **> 35%** — over-dependent. **Push direct** (member rates, retargeting), raise
-  OTA-only rates, and **close OTA** or cap allocation on your peak/compression
-  dates so commissionable rooms don't crowd out direct demand.
+| share | read | action |
+|---|---|---|
+| < 15% | under-exposed | safe to lean on OTA in soft months |
+| 25–35% | elevated | **hold BAR**, enforce parity, cap OTA allocation on peaks |
+| > 35% | over-dependent | **push direct**, raise OTA-only rates, **close OTA** on compression dates |
 
-## How to judge, not just report
+Judgment: high OTA share in a *soft* month is fine (fill the hotel); the same
+share in a *strong* month is margin you are giving away — that is where you act.
+A rising OTA share on flat total revenue means you are buying the same business
+at higher cost.
 
-- Compare OTA's share to the **same month last year** via `get_segment_mix` on the
-  prior-year month. A rising OTA share on flat total revenue means you are buying
-  the same business at higher cost — flag it.
-- Cross-check absolute demand: high OTA share in a *soft* month is acceptable
-  (fill the hotel); high OTA share in a *strong* month is margin you are giving
-  away — that is where you act.
-- Tie the recommendation to dates: name the specific months where OTA
-  `share_of_revenue` exceeds 35% and what to close or reprice there.
+**Answer like.** "OTA is 14% of July revenue (12% STLY) — healthy, not
+over-reliant; if anything there's headroom to use OTA tactically in soft weeks.
+No action on July."
 
-Never read OTA share from raw rows — always use `get_segment_mix` so cancelled
-and provisional business is already excluded.
+**Don't** confuse `share_of_revenue` with `share_of_room_nights` — OTA's room-night
+share runs higher because it books lower-rated rooms.
