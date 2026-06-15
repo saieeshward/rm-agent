@@ -16,7 +16,7 @@ size a macro group cleanly.
 
 | signal | read | action |
 |---|---|---|
-| retail (BAR/OTA/PROM) `share_of_revenue` < 25% | over-reliant on group/contract | **protect retail** availability, **hold BAR** vs releasing to blocks |
+| retail `share_of_revenue` < 25% (sum the segments whose effective `macro_group` is Retail — currently BAR + OTA; PROM is now Leisure Group) | over-reliant on group/contract | **protect retail** availability, **hold BAR** vs releasing to blocks |
 | one macro group > 50% of revenue | diversification risk | grow under-weight segments; don't discount the dominant one |
 | high-ADR segment's revenue share drops > 10 pts vs STLY | rate/mix erosion | **shift rate**, tighten that segment's discounts |
 

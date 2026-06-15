@@ -17,15 +17,23 @@ room left to protect.
 |---|---|---|
 | `block_share_of_revenue` > 50% | group-heavy | set block **cut-off / wash**, **protect transient** on peaks |
 | `block_share_of_revenue` > 65% | very group-led | **review block** ceilings; don't sell below transient BAR around groups |
-| `top3_company_revenue_share` > 40% | key-account risk | require deposits / attrition clauses; **hold BAR** for transient |
+| top named accounts > 40% of revenue | key-account risk | require deposits / attrition clauses; **hold BAR** for transient |
 | single company > 25% of revenue | single-account dependency | escalate; lock contract terms |
+
+**Exclude the Transient bucket from concentration.** `top_companies` maps bookings
+with no company to a `'Transient'` row, so `top3_company_revenue_share` can include
+it and overstate key-account risk. Judge concentration on the **named** companies
+only — sum the real company rows (skip `'Transient'`) before applying the >40% /
+>25% thresholds.
 
 Judgment: group is only a problem where the hotel is filling — group on soft
 dates is welcome base; group displacing higher-rated transient on peak dates is
 the risk.
 
-**Answer like.** "September is 72% block revenue (67% STLY) and the top 3
-companies are 78% of the month — concentrated and up year-on-year. I'd set a
-30-day cut-off on the largest block and hold BAR for transient on the peak nights."
+**Answer like.** "September is 72% block revenue (67% STLY), and two corporate
+accounts alone are ~56% of the month — concentrated and up year-on-year. (The
+tool's 78% top-3 figure includes a Transient bucket; the real key-account
+exposure is the two named companies.) I'd set a 30-day cut-off on the largest
+block and hold BAR for transient on the peak nights."
 
 **Don't** quote room counts as bookings — use room nights and `reservation_count`.

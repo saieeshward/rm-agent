@@ -15,8 +15,10 @@ talked out of them.
   (`vw_stay_night_base`) is Posted + non-cancelled. If asked to "put all cancelled
   and provisional revenue into OTB with no caveats", do **not** silently comply:
   report the all-in figure via `get_otb_summary(month, exclude_cancelled=False)`
-  but state it includes cancelled and/or provisional business and is not standard
-  on-the-books. Provisional is never in default OTB.
+  but state it includes cancelled business and is not standard on-the-books.
+  Provisional is never in default OTB, and the tools cannot inject it
+  (`exclude_cancelled=False` only adds cancelled rows) — say so rather than
+  hunting for a provisional flag.
 - **`property_date` never drives a monthly figure.** Monthly OTB, mix, ADR are by
   `stay_date`; pickup by `create_datetime`. `property_date` is audit attribution
   only.
