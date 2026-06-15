@@ -106,15 +106,21 @@ def _final_text(state) -> str:
 
 def _stream(payload, thread: str):
     cfg = {"configurable": {"thread_id": thread}, "recursion_limit": 50}
-    for chunk in get_agent().stream(payload, config=cfg, stream_mode="updates"):
-        for ev in _events(chunk):
-            yield _sse(ev)
-    state = get_agent().get_state(cfg)
-    if state.next:
-        yield _sse({"type": "interrupt", "tool": "get_as_of_otb",
-                    "message": "Point-in-time rebuild needs approval."})
-    else:
-        yield _sse({"type": "answer", "text": _final_text(state)})
+    try:
+        for chunk in get_agent().stream(payload, config=cfg, stream_mode="updates"):
+            for ev in _events(chunk):
+                yield _sse(ev)
+        state = get_agent().get_state(cfg)
+        if state.next:
+            yield _sse({"type": "interrupt", "tool": "get_as_of_otb",
+                        "message": "Point-in-time rebuild needs approval."})
+        else:
+            yield _sse({"type": "answer", "text": _final_text(state)})
+    except Exception as exc:  # surface model/rate-limit errors instead of hanging
+        msg = str(exc)
+        if "RESOURCE_EXHAUSTED" in msg or "429" in msg or "rate" in msg.lower():
+            msg = "Model rate limit / quota exceeded — retry shortly or use a model with more capacity."
+        yield _sse({"type": "error", "message": msg[:400]})
     yield _sse({"type": "done"})
 
 
@@ -173,6 +179,7 @@ async function stream(url,payload){
       else if(e.type==='skill')add('→ skill: '+e.name+' '+JSON.stringify(e.args),'ev');
       else if(e.type==='result')add('  ↳ '+e.name+': '+e.preview,'ev res');
       else if(e.type==='interrupt'){hitl.style.display='flex';}
+      else if(e.type==='error')add('⚠ '+e.message,'answer warn');
       else if(e.type==='answer')add(e.text,'answer');
     }}}
 function send(){const q=document.getElementById('q');if(!q.value)return;add('You: '+q.value,'you');stream('/chat',{message:q.value,thread});q.value='';}
