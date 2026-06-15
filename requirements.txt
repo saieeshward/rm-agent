@@ -1,3 +1,4 @@
 playwright>=1.44
 psycopg[binary]>=3.1
 pytest>=8.0
+pyyaml>=6.0
