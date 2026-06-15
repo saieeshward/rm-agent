@@ -24,8 +24,8 @@ Judgment: group is only a problem where the hotel is filling — group on soft
 dates is welcome base; group displacing higher-rated transient on peak dates is
 the risk.
 
-**Answer like.** "September is 72% block revenue (54% STLY) and the top 3
-companies are 78% of the month — that's concentrated. I'd set a 30-day cut-off on
-the largest block and hold BAR for transient on the peak nights."
+**Answer like.** "September is 72% block revenue (67% STLY) and the top 3
+companies are 78% of the month — concentrated and up year-on-year. I'd set a
+30-day cut-off on the largest block and hold BAR for transient on the peak nights."
 
 **Don't** quote room counts as bookings — use room nights and `reservation_count`.

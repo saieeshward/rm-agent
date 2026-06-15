@@ -23,9 +23,9 @@ size a macro group cleanly.
 Judgment: revenue share well above room-night share = a high-rated segment to
 protect; the reverse = a segment diluting ADR.
 
-**Answer like.** "July is driven by MICE — CNI 42% and EVEN 22% of revenue, up
-from STLY — while retail is only 21%. Healthy demand but thin on rate-flexible
-business; I'd protect retail availability and hold BAR on the shoulder dates."
+**Answer like.** "July is driven by MICE — CNI 42% and EVEN 22% of revenue —
+while retail is only ~20%. Healthy demand but thin on rate-flexible business;
+I'd protect retail availability and hold BAR on the shoulder dates."
 
 **Don't** use the static `market_code_lookup.macro_group` — the tool's effective
 group is correct.

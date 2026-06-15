@@ -22,7 +22,7 @@ Judgment: a number with no comparison is not a briefing. Lead with room nights a
 total revenue vs STLY, then the single driver worth knowing.
 
 **Answer like.** "September is £42.9k on the books across 230 room nights — about
-12% ahead of STLY and the strongest month in the window. It's group-led, so I'd
+13% ahead of STLY and the strongest month in the window. It's group-led, so I'd
 hold BAR and protect transient availability rather than discount."
 
 **Don't** quote `row_count` as bookings — that's stay rows. Use `reservation_count`

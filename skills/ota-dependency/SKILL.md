@@ -22,9 +22,10 @@ share in a *strong* month is margin you are giving away — that is where you ac
 A rising OTA share on flat total revenue means you are buying the same business
 at higher cost.
 
-**Answer like.** "OTA is 14% of July revenue (12% STLY) — healthy, not
-over-reliant; if anything there's headroom to use OTA tactically in soft weeks.
-No action on July."
+**Answer like.** "OTA is 14% of July revenue (6% STLY) — it has roughly doubled
+year-on-year but is still well under any over-reliance threshold, so you're not
+too dependent; there's headroom to use OTA tactically in soft weeks. Worth
+watching the upward trend, but no action needed on July."
 
 **Don't** confuse `share_of_revenue` with `share_of_room_nights` — OTA's room-night
 share runs higher because it books lower-rated rooms.
