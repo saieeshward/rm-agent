@@ -19,6 +19,7 @@ import os
 from pathlib import Path
 
 from deepagents import create_deep_agent
+from deepagents.backends import FilesystemBackend
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 
@@ -33,13 +34,13 @@ from agent.tools import HITL_TOOL, MAIN_TOOLS, SEGMENT_TOOLS
 from tools.revenue_tools import REQUIRED_TOOLS
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILLS = ROOT / "skills"
+SKILLS_DIR = ROOT / "skills"
 
-MAIN_SKILLS = [str(SKILLS / s) for s in
-               ("monthly-otb-briefing", "pickup-pace", "rate-positioning",
-                "cancellation-risk", "filter-guardrail")]
-SEGMENT_SKILLS = [str(SKILLS / s) for s in
-                  ("segment-mix-shift", "ota-dependency", "block-concentration")]
+# Skills middleware loads from the BACKEND, and a "source" is a directory whose
+# children are skills (each child has a SKILL.md). We point at the skills/ dir;
+# the 8 skill subdirs are discovered, CHALLENGE_SKILL.md (a loose file) is ignored.
+# Backend-relative path (the agent runs on a FilesystemBackend rooted at the repo).
+SKILL_SOURCES = ["skills"]
 
 DEFAULT_MODEL = "anthropic:claude-sonnet-4-6"
 
@@ -77,7 +78,7 @@ SEGMENT_SUBAGENT = {
     ),
     "system_prompt": SEGMENT_ANALYST_PROMPT,
     "tools": SEGMENT_TOOLS,
-    "skills": SEGMENT_SKILLS,
+    "skills": SKILL_SOURCES,
 }
 
 # Inspectable mirror of the wiring (for tests; no LLM needed).
@@ -89,8 +90,7 @@ AGENT_CONFIG = {
     "interrupt_on": {HITL_TOOL: True},
     "hitl_tool": HITL_TOOL,
     "subagents": [SEGMENT_SUBAGENT["name"]],
-    "main_skills": MAIN_SKILLS,
-    "segment_skills": SEGMENT_SKILLS,
+    "skill_sources": SKILL_SOURCES,
     "uses_checkpointer": True,
     "uses_store": True,
 }
@@ -108,7 +108,8 @@ def build_agent(model=None, checkpointer=None, store=None):
         tools=MAIN_TOOLS,
         system_prompt=MAIN_SYSTEM_PROMPT,
         subagents=[SEGMENT_SUBAGENT],
-        skills=MAIN_SKILLS,
+        skills=SKILL_SOURCES,
+        backend=FilesystemBackend(root_dir=str(ROOT), virtual_mode=True),
         interrupt_on={HITL_TOOL: True},
         checkpointer=checkpointer or MemorySaver(),
         store=store or InMemoryStore(),

@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 
-from agent.build import AGENT_CONFIG, MAIN_SKILLS, SEGMENT_SKILLS, build_agent
+from agent.build import AGENT_CONFIG, SKILL_SOURCES, SKILLS_DIR, build_agent
 from agent.tools import MAIN_TOOLS, SEGMENT_TOOLS
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,10 +69,9 @@ def test_multi_tool_decomposition_trace():
 # --- Scenario 5: skills are on-demand SKILL.md, not a monolith -------------- #
 def test_skills_loaded_on_demand(graph_nodes):
     assert any("Skills" in n for n in graph_nodes), graph_nodes
-    paths = MAIN_SKILLS + SEGMENT_SKILLS
-    assert paths, "no skill paths configured"
-    for p in paths:                              # each configured skill path exists
-        assert (Path(p) / "SKILL.md").is_file(), f"missing SKILL.md at {p}"
+    assert SKILL_SOURCES, "no skill sources configured"
+    skill_files = list(SKILLS_DIR.rglob("SKILL.md"))
+    assert len(skill_files) >= 6, f"expected >=6 SKILL.md under {SKILLS_DIR}"
 
 
 # --- Scenario 6: memory / filesystem used (not stateless) ------------------ #

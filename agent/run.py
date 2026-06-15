@@ -42,7 +42,10 @@ def main() -> None:
     args = ap.parse_args()
 
     agent = build_agent()
-    config = {"configurable": {"thread_id": args.thread}, "recursion_limit": 12}
+    # Each agent turn traverses several middleware nodes, so a legit multi-tool
+    # answer needs well over the LangGraph default; 50 allows that yet still
+    # halts a runaway (e.g. a small model re-calling the same tool dozens of times).
+    config = {"configurable": {"thread_id": args.thread}, "recursion_limit": 50}
     today = datetime.date.today().isoformat()
     primer = (f"(Context: today is {today}; dataset anchor ~2026-06-14; "
               f"stay months are 'YYYY-MM', STLY = year minus one.)\n\n")
@@ -66,8 +69,14 @@ def main() -> None:
         payload = Command(resume={"decisions": [decision]})
 
     final = agent.get_state(config).values["messages"][-1]
+    content = getattr(final, "content", final)
+    if isinstance(content, list):  # provider content blocks (e.g. Gemini) -> text
+        content = "\n".join(
+            b.get("text", "") for b in content
+            if isinstance(b, dict) and b.get("type") == "text"
+        ) or str(content)
     print("\n=== ANSWER ===")
-    print(getattr(final, "content", final))
+    print(content)
 
 
 if __name__ == "__main__":
