@@ -20,6 +20,7 @@ from tools.revenue_tools import (
     get_as_of_otb,
     get_block_vs_transient_mix,
     get_booking_pace,
+    get_otb_comparison,
     get_otb_summary,
     get_pickup_delta,
     get_segment_mix,
@@ -31,11 +32,13 @@ pickup_delta_tool = StructuredTool.from_function(get_pickup_delta)
 booking_pace_tool = StructuredTool.from_function(get_booking_pace)
 adr_by_room_type_tool = StructuredTool.from_function(get_adr_by_room_type)
 as_of_otb_tool = StructuredTool.from_function(get_as_of_otb)
+otb_comparison_tool = StructuredTool.from_function(get_otb_comparison)
 segment_mix_tool = StructuredTool.from_function(get_segment_mix)
 block_vs_transient_tool = StructuredTool.from_function(get_block_vs_transient_mix)
 
 MAIN_TOOLS = [
     otb_summary_tool,
+    otb_comparison_tool,
     pickup_delta_tool,
     booking_pace_tool,
     adr_by_room_type_tool,

@@ -20,6 +20,7 @@ from tools.revenue_tools import (
     get_adr_by_room_type,
     get_as_of_otb,
     get_block_vs_transient_mix,
+    get_otb_comparison,
     get_otb_summary,
     get_pickup_delta,
     get_segment_mix,
@@ -185,6 +186,17 @@ def test_block_transient_reconciles(busiest_month):
 
 
 # --- Scenario 12: tool layer isolation ------------------------------------- #
+# --- supplementary: YoY comparison math is done in code, exactly --------- #
+def test_otb_comparison_bridge_is_exact(busiest_month):
+    c = get_otb_comparison(busiest_month)
+    assert c["stly_month"].endswith(busiest_month[4:])  # same month, year-1
+    b = c["room_revenue_bridge"]
+    delta = c["current"]["room_revenue"] - c["stly"]["room_revenue"]
+    # volume_effect + rate_effect must reconstruct the revenue delta (the model never does this math)
+    assert abs((b["volume_effect"] + b["rate_effect"]) - delta) < 0.5
+    assert b["primary_driver"] in ("rate", "volume")
+
+
 def test_no_raw_sql_parameter():
     forbidden = {"sql", "query", "q", "statement", "stmt"}
     for fn in ALL_TOOLS:

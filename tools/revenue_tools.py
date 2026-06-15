@@ -506,6 +506,82 @@ def get_booking_pace(stay_month: str) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# 8. get_otb_comparison  (supplementary; do the comparison MATH in code, not the LLM)
+# --------------------------------------------------------------------------- #
+def _otb_month_aggregates(stay_month: str) -> dict:
+    start, end = _month_range(stay_month)
+    row = _agg(
+        """
+        select
+          count(distinct reservation_id)                   as reservation_count,
+          coalesce(sum(number_of_spaces), 0)               as room_nights,
+          coalesce(sum(daily_room_revenue_before_tax), 0)  as room_revenue,
+          coalesce(sum(daily_total_revenue_before_tax), 0) as total_revenue
+        from public.vw_stay_night_base
+        where stay_date >= %s and stay_date < %s
+        """,
+        (start, end),
+    )
+    rn = _i(row.get("room_nights"))
+    room_rev = _f(row.get("room_revenue"))
+    return {
+        "reservation_count": _i(row.get("reservation_count")),
+        "room_nights": rn,
+        "room_revenue": round(room_rev, 2),
+        "total_revenue": _money(row.get("total_revenue")),
+        "adr": round(room_rev / rn, 2) if rn else 0.0,  # room ADR = room_revenue / room_nights
+    }
+
+
+def _pct(cur: float, base: float) -> float | None:
+    return round((cur - base) / base, 4) if base else None
+
+
+def get_otb_comparison(stay_month: str) -> dict:
+    """
+    Year-on-year OTB comparison for a stay month vs the same month last year (STLY),
+    with all deltas and the rate-vs-volume bridge computed IN CODE (not by the model).
+
+    Returns current + stly aggregates (reservation_count, room_nights, room_revenue,
+    total_revenue, adr), percentage deltas, and an exact room-revenue bridge:
+      - volume_effect = (room_nights_cur - room_nights_stly) * adr_stly
+      - rate_effect   = (adr_cur - adr_stly) * room_nights_cur
+      - volume_effect + rate_effect == room_revenue_cur - room_revenue_stly  (exact)
+      - primary_driver = 'rate' | 'volume' (the larger absolute effect)
+    Use this for "vs last year" / "is growth rate or volume" questions instead of
+    doing the arithmetic yourself.
+    """
+    _month_range(stay_month)  # validate format first
+    y, m = stay_month.strip().split("-")
+    stly_month = f"{int(y) - 1}-{m}"
+    cur = _otb_month_aggregates(stay_month)
+    stly = _otb_month_aggregates(stly_month)
+    # bridge from RAW adr (room_revenue / room_nights) so volume + rate == revenue delta exactly
+    adr_cur = cur["room_revenue"] / cur["room_nights"] if cur["room_nights"] else 0.0
+    adr_stly = stly["room_revenue"] / stly["room_nights"] if stly["room_nights"] else 0.0
+    volume_effect = (cur["room_nights"] - stly["room_nights"]) * adr_stly
+    rate_effect = (adr_cur - adr_stly) * cur["room_nights"]
+    return {
+        "stay_month": stay_month,
+        "stly_month": stly_month,
+        "current": cur,
+        "stly": stly,
+        "deltas": {
+            "reservation_count_pct": _pct(cur["reservation_count"], stly["reservation_count"]),
+            "room_nights_pct": _pct(cur["room_nights"], stly["room_nights"]),
+            "room_revenue_pct": _pct(cur["room_revenue"], stly["room_revenue"]),
+            "total_revenue_pct": _pct(cur["total_revenue"], stly["total_revenue"]),
+            "adr_pct": _pct(cur["adr"], stly["adr"]),
+        },
+        "room_revenue_bridge": {
+            "volume_effect": round(volume_effect, 2),
+            "rate_effect": round(rate_effect, 2),
+            "primary_driver": "rate" if abs(rate_effect) >= abs(volume_effect) else "volume",
+        },
+    }
+
+
 # The five tools the brief mandates by exact name (no run_sql escape hatch).
 REQUIRED_TOOLS = [
     get_otb_summary,
@@ -515,5 +591,6 @@ REQUIRED_TOOLS = [
     get_block_vs_transient_mix,
 ]
 
-# All agent-facing tools (required five + supplementary ADR & booking-pace tools).
-ALL_TOOLS = REQUIRED_TOOLS + [get_adr_by_room_type, get_booking_pace]
+# All agent-facing tools (required five + supplementary ADR / booking-pace /
+# year-on-year comparison tools — the supplementary tools keep all arithmetic in code).
+ALL_TOOLS = REQUIRED_TOOLS + [get_adr_by_room_type, get_booking_pace, get_otb_comparison]
