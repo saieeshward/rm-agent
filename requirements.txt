@@ -1,4 +1,13 @@
+# ETL + tools + tests
 playwright>=1.44
 psycopg[binary]>=3.1
 pytest>=8.0
 pyyaml>=6.0
+
+# Agent (Deep Agents on LangChain/LangGraph)
+deepagents>=0.6
+langchain>=1.0
+# Model provider — install the one matching MODEL (set at deploy, key in env):
+#   anthropic:  pip install langchain-anthropic   (ANTHROPIC_API_KEY)
+#   openai:     pip install langchain-openai       (OPENAI_API_KEY)
+#   gemini:     pip install langchain-google-genai (GOOGLE_API_KEY)

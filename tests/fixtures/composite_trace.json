@@ -1,0 +1,8 @@
+{
+  "question": "What's driving July and how did we book lately?",
+  "comment": "Recorded plan/trace fixture (no live LLM) for Agent Scenario 4: a composite question must invoke >= 2 distinct tools. Segment driver delegates to the segment-analyst subagent (get_segment_mix); recent pace uses get_pickup_delta on the main agent.",
+  "tool_calls": [
+    {"agent": "main", "tool": "get_pickup_delta", "args": {"booking_window_days": 7, "future_stay_from": "2026-07-01"}},
+    {"agent": "segment-analyst", "tool": "get_segment_mix", "args": {"stay_month": "2026-07"}}
+  ]
+}
