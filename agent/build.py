@@ -22,6 +22,12 @@ from deepagents import create_deep_agent
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 
+try:  # load a gitignored .env so API keys never touch chat or git
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+except ImportError:
+    pass
+
 from agent.prompts import MAIN_SYSTEM_PROMPT, SEGMENT_ANALYST_PROMPT
 from agent.tools import HITL_TOOL, MAIN_TOOLS, SEGMENT_TOOLS
 from tools.revenue_tools import REQUIRED_TOOLS
@@ -36,6 +42,31 @@ SEGMENT_SKILLS = [str(SKILLS / s) for s in
                   ("segment-mix-shift", "ota-dependency", "block-concentration")]
 
 DEFAULT_MODEL = "anthropic:claude-sonnet-4-6"
+
+
+def resolve_model(model=None):
+    """Resolve the MODEL spec into something create_deep_agent accepts.
+
+    - a chat-model instance (e.g. a test fake) is passed through unchanged
+    - 'ollama:<name>'      -> local ChatOllama (temperature=0 for termination)
+    - 'openrouter:<name>'  -> ChatOpenAI on the OpenRouter gateway (OPENROUTER_API_KEY)
+    - 'provider:name'      -> string for init_chat_model (anthropic / openai / google_genai)
+    """
+    if model is not None and not isinstance(model, str):
+        return model  # already a chat-model instance
+    spec = model or os.environ.get("MODEL", DEFAULT_MODEL)
+    if spec.startswith("ollama:"):
+        from langchain_ollama import ChatOllama
+        return ChatOllama(model=spec.split(":", 1)[1], temperature=0)
+    if spec.startswith("openrouter:"):
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=spec.split(":", 1)[1],
+            temperature=0,
+            base_url="https://openrouter.ai/api/v1",
+            api_key=os.environ.get("OPENROUTER_API_KEY"),
+        )
+    return spec
 
 SEGMENT_SUBAGENT = {
     "name": "segment-analyst",
@@ -72,9 +103,8 @@ def build_agent(model=None, checkpointer=None, store=None):
            defaults to env MODEL or DEFAULT_MODEL. checkpointer/store default to
            in-memory implementations (swap for Postgres/Redis in deployment).
     """
-    resolved_model = model or os.environ.get("MODEL", DEFAULT_MODEL)
     return create_deep_agent(
-        model=resolved_model,
+        model=resolve_model(model),
         tools=MAIN_TOOLS,
         system_prompt=MAIN_SYSTEM_PROMPT,
         subagents=[SEGMENT_SUBAGENT],

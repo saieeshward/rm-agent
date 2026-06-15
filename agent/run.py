@@ -13,22 +13,11 @@ from __future__ import annotations
 
 import argparse
 import datetime
-import os
 
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.types import Command
 
 from agent.build import build_agent
-
-
-def _resolve_model():
-    """Build a tuned local model for ollama (temperature=0 helps it terminate);
-    otherwise let build_agent resolve the provider string from MODEL."""
-    model = os.environ.get("MODEL", "")
-    if model.startswith("ollama:"):
-        from langchain_ollama import ChatOllama
-        return ChatOllama(model=model.split(":", 1)[1], temperature=0)
-    return None
 
 
 def _print_chunk(chunk: dict) -> None:
@@ -52,7 +41,7 @@ def main() -> None:
                     help="auto-approve the get_as_of_otb HITL interrupt (default: reject)")
     args = ap.parse_args()
 
-    agent = build_agent(model=_resolve_model())
+    agent = build_agent()
     config = {"configurable": {"thread_id": args.thread}, "recursion_limit": 12}
     today = datetime.date.today().isoformat()
     primer = (f"(Context: today is {today}; dataset anchor ~2026-06-14; "

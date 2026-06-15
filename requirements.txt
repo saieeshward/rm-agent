@@ -7,7 +7,9 @@ pyyaml>=6.0
 # Agent (Deep Agents on LangChain/LangGraph)
 deepagents>=0.6
 langchain>=1.0
-# Model provider — install the one matching MODEL (set at deploy, key in env):
-#   anthropic:  pip install langchain-anthropic   (ANTHROPIC_API_KEY)
-#   openai:     pip install langchain-openai       (OPENAI_API_KEY)
-#   gemini:     pip install langchain-google-genai (GOOGLE_API_KEY)
+python-dotenv>=1.0
+# Model providers — install the one matching MODEL (key via .env / env):
+#   anthropic:   pip install langchain-anthropic     (ANTHROPIC_API_KEY)
+#   gemini:      pip install langchain-google-genai  (GOOGLE_API_KEY)        [free tier]
+#   openrouter:  pip install langchain-openai         (OPENROUTER_API_KEY)   [many models]
+#   local:       pip install langchain-ollama         (no key)
