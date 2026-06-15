@@ -27,5 +27,9 @@ protect; the reverse = a segment diluting ADR.
 while retail is only ~20%. Healthy demand but thin on rate-flexible business;
 I'd protect retail availability and hold BAR on the shoulder dates."
 
+**Answer like (act).** "Watch August: Corporate's revenue share fell ~12 points vs
+STLY while OTA grew — a high-rated segment eroding. I'd shift rate back toward
+corporate and tighten OTA discount availability there."
+
 **Don't** use the static `market_code_lookup.macro_group` — the tool's effective
 group is correct.

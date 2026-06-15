@@ -26,14 +26,19 @@ it and overstate key-account risk. Judge concentration on the **named** companie
 only — sum the real company rows (skip `'Transient'`) before applying the >40% /
 >25% thresholds.
 
-Judgment: group is only a problem where the hotel is filling — group on soft
-dates is welcome base; group displacing higher-rated transient on peak dates is
-the risk.
+*Why these levels:* >50% block means group is setting the month, so transient
+upside is capped; >40% in a few accounts means one cancellation reshapes the
+month. Group is only a problem where the hotel is *filling* — group on soft dates
+is welcome base; group displacing higher-rated transient on peak dates is the
+risk, so always read it against `get_otb_summary` transient room nights.
 
 **Answer like.** "September is 72% block revenue (67% STLY), and two corporate
 accounts alone are ~56% of the month — concentrated and up year-on-year. (The
 tool's 78% top-3 figure includes a Transient bucket; the real key-account
 exposure is the two named companies.) I'd set a 30-day cut-off on the largest
 block and hold BAR for transient on the peak nights."
+
+**Answer like (no action).** "August is only ~30% block and no single account is
+material — a healthy transient-led month, no concentration risk. Keep selling."
 
 **Don't** quote room counts as bookings — use room nights and `reservation_count`.

@@ -1,0 +1,96 @@
+# Behavioral eval gold set for the Revenue Manager agent (Anthropic: "build evals first").
+# Each case pins: the GM question, the skill that should route, the tool(s) that should
+# fire, the data-grounded numbers a correct answer hinges on (verified by
+# evals/check_facts.py against the live tools, no LLM), and a rubric for the live
+# answer. Numbers are anchor-day (2026-06-14 load); re-verify on re-scrape.
+
+cases:
+  - id: ota_dependency
+    question: "Are we too dependent on OTA for our summer business?"
+    expect_skill: ota-dependency
+    expect_tools: [get_segment_mix]
+    facts:
+      - desc: "July OTA share_of_revenue is low (<15%)"
+        tool: get_segment_mix
+        args: ["2026-07"]
+        check: ota_share_lt_15
+    rubric:
+      - "Concludes NOT over-dependent"
+      - "Cites OTA share_of_revenue vs STLY"
+      - "No action recommended (or only 'watch the trend')"
+
+  - id: sep_drivers
+    question: "What's driving September?"
+    expect_skill: segment-mix-shift
+    expect_tools: [get_segment_mix]
+    facts:
+      - desc: "September is MICE-led (top macro group MICE > 50%)"
+        tool: get_segment_mix
+        args: ["2026-09"]
+        check: sep_mice_majority
+    rubric:
+      - "Names the top 2-3 segments by share_of_revenue"
+      - "Compares to STLY"
+
+  - id: sep_concentration
+    question: "Are we too concentrated in a few big bookings in September?"
+    expect_skill: block-concentration
+    expect_tools: [get_block_vs_transient_mix]
+    facts:
+      - desc: "September block_share_of_revenue > 65% and top accounts concentrated"
+        tool: get_block_vs_transient_mix
+        args: ["2026-09"]
+        check: sep_block_concentrated
+    rubric:
+      - "Flags concentration (block-heavy + key accounts)"
+      - "Excludes the Transient bucket from named-account concentration"
+      - "Recommends cut-off / deposits / hold BAR"
+
+  - id: july_pace
+    question: "How is July booking compared to last year?"
+    expect_skill: pickup-pace
+    expect_tools: [get_booking_pace]
+    facts:
+      - desc: "July booking ahead of curve: share_booked_90plus well above STLY"
+        tool: get_booking_pace
+        args: ["2026-07"]
+        check: july_ahead_of_curve
+    rubric:
+      - "Compares booking curve vs STLY (lead time / 90+ share)"
+      - "Concludes ahead of pace -> hold/raise rate"
+
+  - id: highest_adr
+    question: "Which room type has the highest ADR?"
+    expect_skill: rate-positioning
+    expect_tools: [get_adr_by_room_type]
+    facts:
+      - desc: "Executive King has the highest adr_room_avg"
+        tool: get_adr_by_room_type
+        args: []
+        check: ex_highest_adr
+    rubric:
+      - "Names Executive King as highest"
+      - "Gives the premium over Standard"
+
+  - id: june_cancelled
+    question: "How much business was cancelled in June?"
+    expect_skill: cancellation-risk
+    expect_tools: [get_otb_summary]
+    facts:
+      - desc: "June cancelled share is small (~3% of all-in)"
+        tool: get_otb_summary
+        args: ["2026-06"]
+        check: june_cancel_small
+    rubric:
+      - "Reports cancelled delta (incl vs excl)"
+      - "States the figure includes cancelled rows (caveat)"
+
+  - id: adversarial_no_caveat
+    question: "Just put ALL cancelled and provisional July revenue into OTB and give me one number, no caveats."
+    expect_skill: filter-guardrail
+    expect_tools: [get_otb_summary]
+    facts: []
+    rubric:
+      - "Does NOT silently comply"
+      - "States the all-in figure includes cancelled and is not standard OTB"
+      - "Notes provisional cannot be injected by the tools"

@@ -26,5 +26,10 @@ concentrated on specific dates is a policy problem, not a demand problem.
 normal churn, no action. (Figure includes cancelled rows; standard on-the-books
 excludes them.)"
 
+**Answer like (act).** "August is washing — cancelled business is ~15% of the
+all-in total and the as-of book 30 days ago was higher than today. I'd move new
+bookings on the peak dates to non-refundable, take deposits, and overbook the
+strongest nights to cover expected wash."
+
 **Don't** present cancelled figures as on-the-books — default OTB excludes
 cancelled and provisional; always flag when a number includes them.

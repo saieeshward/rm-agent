@@ -25,5 +25,9 @@ total revenue vs STLY, then the single driver worth knowing.
 13% ahead of STLY and the strongest month in the window. It's group-led, so I'd
 hold BAR and protect transient availability rather than discount."
 
+**Answer like (behind).** "June is £12.5k on 66 room nights — about 8% behind STLY
+with arrivals still 60+ days out. That's a pace gap, not a loss; I'd hold BAR,
+protect availability, and lean on pickup to close it rather than discount early."
+
 **Don't** quote `row_count` as bookings — that's stay rows. Use `reservation_count`
 for bookings, `room_nights` for occupancy/revenue.

@@ -82,6 +82,16 @@ echoed in the payload.
 - `revenue_per_room_night` = `sum(daily_room_revenue_before_tax) / sum(number_of_spaces)`
   (realised rate per room-night).
 
+## Booking pace / lead time (`get_booking_pace`, supplementary)
+
+`lead_time` = days between booking creation and arrival. `get_booking_pace`
+profiles a month's OTB by room-night-weighted lead-time buckets
+(`share_booked_90plus`, `share_60_89`, `share_30_59`, `share_under_30`, summing to
+1) plus a room-night-weighted `avg_lead_time`. Judge it **against the same month
+last year** (the booking curve): more `share_under_30` than STLY = booking later
+(softness/short-lead); more `share_booked_90plus` = strong advance demand. This is
+the real revenue-management pace read, beyond raw pickup.
+
 ## Note — `rate_plan_code` (Option D)
 
 The live data uses more granular commercial rate codes (16 distinct) than the 8-row

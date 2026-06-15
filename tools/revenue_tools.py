@@ -456,6 +456,56 @@ def get_adr_by_room_type(stay_month: str | None = None) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# 7. get_booking_pace  (supplementary; booking-curve / lead-time reasoning)
+# --------------------------------------------------------------------------- #
+def get_booking_pace(stay_month: str) -> dict:
+    """
+    Booking-curve / lead-time profile for a stay month's OTB (vw_stay_night_base).
+
+    Real revenue managers judge pace against the booking curve: how far ahead is
+    this month's business being booked, vs the same month last year? lead_time is
+    days between booking creation and arrival. Metrics are room-night weighted
+    (sum of number_of_spaces), at stay-date grain.
+
+    Returns:
+      - stay_month, reservation_count (distinct), room_nights (sum number_of_spaces)
+      - avg_lead_time (room-night weighted, days)
+      - share_booked_90plus / share_60_89 / share_30_59 / share_under_30 (0-1 of room nights)
+    Call on the prior-year month (STLY) to compare the curve. A higher
+    share_under_30 than STLY = business booking later (a softness/short-lead signal);
+    a higher share_booked_90plus = strong advance demand.
+    """
+    start, end = _month_range(stay_month)
+    row = _agg(
+        """
+        select
+          count(distinct reservation_id)                                            as reservation_count,
+          coalesce(sum(number_of_spaces), 0)                                         as room_nights,
+          coalesce(round(sum(lead_time * number_of_spaces)::numeric
+                         / nullif(sum(number_of_spaces), 0), 1), 0)                  as avg_lead_time,
+          coalesce(sum(number_of_spaces) filter (where lead_time >= 90), 0)          as rn_90plus,
+          coalesce(sum(number_of_spaces) filter (where lead_time >= 60 and lead_time < 90), 0) as rn_60_89,
+          coalesce(sum(number_of_spaces) filter (where lead_time >= 30 and lead_time < 60), 0) as rn_30_59,
+          coalesce(sum(number_of_spaces) filter (where lead_time < 30), 0)           as rn_under_30
+        from public.vw_stay_night_base
+        where stay_date >= %s and stay_date < %s
+        """,
+        (start, end),
+    )
+    rn = float(_i(row.get("room_nights")))
+    return {
+        "stay_month": stay_month,
+        "reservation_count": _i(row.get("reservation_count")),
+        "room_nights": _i(row.get("room_nights")),
+        "avg_lead_time": _f(row.get("avg_lead_time")),
+        "share_booked_90plus": _share(row.get("rn_90plus"), rn),
+        "share_60_89": _share(row.get("rn_60_89"), rn),
+        "share_30_59": _share(row.get("rn_30_59"), rn),
+        "share_under_30": _share(row.get("rn_under_30"), rn),
+    }
+
+
 # The five tools the brief mandates by exact name (no run_sql escape hatch).
 REQUIRED_TOOLS = [
     get_otb_summary,
@@ -465,5 +515,5 @@ REQUIRED_TOOLS = [
     get_block_vs_transient_mix,
 ]
 
-# All agent-facing tools (required five + supplementary ADR tool).
-ALL_TOOLS = REQUIRED_TOOLS + [get_adr_by_room_type]
+# All agent-facing tools (required five + supplementary ADR & booking-pace tools).
+ALL_TOOLS = REQUIRED_TOOLS + [get_adr_by_room_type, get_booking_pace]

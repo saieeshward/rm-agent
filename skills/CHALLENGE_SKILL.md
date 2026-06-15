@@ -29,6 +29,10 @@ table, follow its protocol, answer in the contract shape.
 4. **Recommendation** — a concrete action.
 5. **Caveat** — only if a filter assumption was made (e.g. cancelled excluded).
 
+**Sanity-check before answering.** Reconcile derived claims: block + transient
+room nights must equal the month's OTB room nights; segment shares must sum to ~1;
+a share must be 0–1. If a figure doesn't reconcile, re-pull rather than report it.
+
 ## House rules
 
 - Default universe is Posted + non-cancelled (tools enforce it). Include cancelled

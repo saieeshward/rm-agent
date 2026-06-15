@@ -25,5 +25,9 @@ means the top product is underpriced, not that demand is weak.
 healthy £55 premium, and all three are flat-to-up vs STLY. No erosion; if
 anything I'd test a small Executive increase on the high-demand weekends."
 
+**Answer like (act).** "King ADR is down ~12% vs STLY while room nights are ahead —
+rate erosion, not weak demand. Hold BAR, pull the open discount codes, and shift
+rate up on the strong weekends."
+
 **Don't** read ADR off raw rows — `revenue_per_room_night` already weights by
 room nights.
