@@ -24,8 +24,10 @@ services:
     healthCheckPath: /health   # unauthenticated; returns the DB fingerprint fields
     autoDeploy: true      # redeploy on push to the default branch
     envVars:
+      # Default model (pre-selected in the UI; the in-app dropdown can switch per
+      # question). Committed here so it's blueprint-managed — no dashboard editing.
       - key: MODEL
-        sync: false
+        value: google_genai:gemini-2.5-flash
       - key: OPENROUTER_API_KEY
         sync: false
       # Optional extra model providers — set the key to make that model appear in

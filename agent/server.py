@@ -54,6 +54,9 @@ _MODEL_LABELS = {
     "openrouter:openai/gpt-oss-120b:free": "gpt-oss-120b · free",
     "openrouter:meta-llama/llama-3.3-70b-instruct:free": "Llama 3.3 70B · free",
     "openrouter:qwen/qwen3-next-80b-a3b-instruct:free": "Qwen3 Next 80B · free",
+    "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free": "Nemotron 3 Ultra 550B · free",
+    "openrouter:nvidia/nemotron-3-super-120b-a12b:free": "Nemotron 3 Super 120B · free",
+    "openrouter:google/gemma-4-31b-it:free": "Gemma 4 31B · free",
     "anthropic:claude-sonnet-4-6": "Claude Sonnet 4.6",
 }
 
