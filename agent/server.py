@@ -53,15 +53,20 @@ DEFAULT_MODEL = os.environ.get("MODEL", "openrouter:openai/gpt-oss-120b:free")
 # deep agent) — verified against OpenRouter's catalog. Free-tier quality/availability
 # varies (gpt-oss can produce loose briefings; the big Nemotrons can be slow / 429),
 # so the GM can switch. Gemini is the default; add more via EXTRA_MODELS (below).
+# Spread across providers so a quota wall on one still leaves working options.
+# NOTE: Groq's free tier is intentionally absent — its per-minute token cap
+# (6-12k TPM) is below this agent's ~9-14k-token request, so every call 413s.
+# The groq: provider is still wired (build.py) for a paid/Dev-tier key via
+# EXTRA_MODELS. Viable free providers here are Google + OpenRouter (daily caps).
 _MODEL_LABELS = {
-    "google_genai:gemini-2.5-flash": "Gemini 2.5 Flash · free",
-    "openrouter:openai/gpt-oss-120b:free": "gpt-oss-120b · free",
-    "openrouter:meta-llama/llama-3.3-70b-instruct:free": "Llama 3.3 70B · free",
-    "openrouter:qwen/qwen3-next-80b-a3b-instruct:free": "Qwen3 Next 80B · free",
-    "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free": "Nemotron 3 Ultra 550B · free",
-    "openrouter:nvidia/nemotron-3-super-120b-a12b:free": "Nemotron 3 Super 120B · free",
-    "openrouter:google/gemma-4-31b-it:free": "Gemma 4 31B · free",
-    "anthropic:claude-sonnet-4-6": "Claude Sonnet 4.6",
+    "google_genai:gemini-2.5-flash": "Gemini 2.5 Flash · Google",
+    "openrouter:openai/gpt-oss-120b:free": "gpt-oss-120B · OpenRouter",
+    "openrouter:meta-llama/llama-3.3-70b-instruct:free": "Llama 3.3 70B · OpenRouter",
+    "openrouter:qwen/qwen3-next-80b-a3b-instruct:free": "Qwen3 Next 80B · OpenRouter",
+    "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free": "Nemotron 3 Ultra 550B · OpenRouter",
+    "openrouter:nvidia/nemotron-3-super-120b-a12b:free": "Nemotron 3 Super 120B · OpenRouter",
+    "openrouter:google/gemma-4-31b-it:free": "Gemma 4 31B · OpenRouter",
+    "anthropic:claude-sonnet-4-6": "Claude Sonnet 4.6 · Anthropic",
 }
 
 # Optional: append models without a code change. Comma-separated "spec|Label"
@@ -77,6 +82,8 @@ for _entry in (os.environ.get("EXTRA_MODELS") or "").split(","):
 def _key_present(spec: str) -> bool:
     if spec.startswith("openrouter:"):
         return bool(os.environ.get("OPENROUTER_API_KEY"))
+    if spec.startswith("groq:"):
+        return bool(os.environ.get("GROQ_API_KEY"))
     if spec.startswith("google_genai:"):
         return bool(os.environ.get("GOOGLE_API_KEY"))
     if spec.startswith("anthropic:"):

@@ -34,6 +34,8 @@ services:
       # the in-app switcher (leave blank to hide it). Set MODEL to the default model.
       - key: GOOGLE_API_KEY
         sync: false
+      - key: GROQ_API_KEY
+        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: DATABASE_URL
