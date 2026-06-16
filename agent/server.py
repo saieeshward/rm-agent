@@ -149,41 +149,262 @@ async def resume(request: Request, user: str = Depends(require_auth)):
 # --------------------------------------------------------------------------- #
 # minimal chat UI (streams tool/skill calls; approve/reject on interrupt)
 # --------------------------------------------------------------------------- #
-PAGE = """<!doctype html><html><head><meta charset=utf-8><title>Revenue Manager</title>
-<style>body{font:15px system-ui;margin:0;background:#0f1117;color:#e6e6e6}
-header{padding:14px 20px;background:#161922;font-weight:600}
-#log{padding:16px 20px;max-width:820px;margin:auto}
-.ev{font:12px ui-monospace;color:#8aa;margin:2px 0}.res{color:#6a6}
-.answer{white-space:pre-wrap;background:#161922;padding:14px;border-radius:8px;margin:10px 0;border-left:3px solid #6366f1}
-.you{color:#9ab;margin-top:18px}#bar{display:flex;gap:8px;padding:16px 20px;max-width:820px;margin:auto}
-input{flex:1;padding:10px;border-radius:8px;border:1px solid #333;background:#0b0d12;color:#eee}
-button{padding:10px 16px;border:0;border-radius:8px;background:#6366f1;color:#fff;cursor:pointer}
-#hitl{display:none;gap:8px;margin:8px 0}.warn{background:#3a2a00;border-left-color:#fb0}</style></head>
-<body><header>Revenue Manager Agent — show-your-work</header>
-<div id=log></div>
-<div id=hitl><span class=ev>get_as_of_otb needs approval</span>
-<button onclick=decide(true)>Approve</button><button onclick=decide(false)>Reject</button></div>
-<div id=bar><input id=q placeholder="What's driving July? Are we too dependent on OTA?" autofocus>
-<button onclick=send()>Ask</button></div>
+PAGE = """<!doctype html><html lang=en><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>The Revenue Desk</title>
+<link rel=preconnect href="https://fonts.googleapis.com">
+<link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel=stylesheet>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+:root{
+ --paper:#F6F4EF;--card:#FFFFFF;--ink:#1B2430;--soft:#5C6976;--faint:#909AA5;
+ --line:#E7E1D5;--teal:#0E6E5B;--teal-deep:#0A4C40;--teal-tint:#E6F1ED;
+ --gold:#A87C2F;--gold-tint:#F3E9D4;--amber:#8A5E10;--amber-bg:#FAEFD6;
+ --red:#9F352A;--red-bg:#F7E7E4;--mono:'IBM Plex Mono',ui-monospace,monospace;
+ --sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;
+ --display:'Fraunces','Newsreader',serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);
+ font-size:15.5px;line-height:1.55;display:flex;flex-direction:column;min-height:100vh;
+ -webkit-font-smoothing:antialiased}
+.eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;
+ text-transform:uppercase;color:var(--faint)}
+
+/* masthead */
+header{position:sticky;top:0;z-index:5;background:rgba(246,244,239,.9);
+ backdrop-filter:blur(8px);border-bottom:2px solid var(--gold)}
+.mast{max-width:880px;margin:auto;padding:15px 22px;display:flex;align-items:baseline;
+ justify-content:space-between;gap:16px}
+.brand{display:flex;align-items:baseline;gap:11px}
+.brand .mark{width:11px;height:11px;background:var(--teal);transform:rotate(45deg);
+ align-self:center;flex:none}
+.brand h1{font-family:var(--display);font-weight:600;font-size:23px;margin:0;
+ letter-spacing:-.01em;line-height:1}
+.brand .sub{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;
+ text-transform:uppercase;color:var(--soft)}
+.chip{font-family:var(--mono);font-size:11px;color:var(--soft);text-align:right;
+ display:flex;align-items:center;gap:7px;white-space:nowrap}
+.chip .dot{width:7px;height:7px;border-radius:50%;background:var(--teal);flex:none;
+ box-shadow:0 0 0 0 rgba(14,110,91,.5);animation:beat 2.4s infinite}
+@keyframes beat{0%{box-shadow:0 0 0 0 rgba(14,110,91,.45)}70%{box-shadow:0 0 0 6px rgba(14,110,91,0)}100%{box-shadow:0 0 0 0 rgba(14,110,91,0)}}
+
+/* conversation */
+main{flex:1;width:100%;max-width:880px;margin:auto;padding:26px 22px 30px}
+.intro{font-family:var(--serif);font-size:18px;color:var(--soft);
+ border-left:2px solid var(--line);padding:2px 0 2px 16px;margin:6px 0 30px}
+.intro b{color:var(--ink);font-weight:500}
+.turn{margin:0 0 34px}
+.ask{margin:0 0 14px}
+.ask .q{font-size:17px;font-weight:500;color:var(--ink);margin-top:3px}
+
+/* work tape — the signature ledger */
+.tape{border-left:1.5px solid var(--line);margin:0 0 4px;padding:2px 0 2px 0}
+.step{position:relative;padding:7px 0 7px 22px;display:flex;gap:9px;
+ align-items:flex-start;animation:rise .28s ease both}
+.step::before{content:"";position:absolute;left:-5.5px;top:13px;width:9px;height:9px;
+ border-radius:50%;background:var(--paper);border:1.5px solid var(--teal)}
+.step.res::before{border-color:var(--line);background:var(--line)}
+.step.appr::before{border-color:var(--gold);background:var(--gold-tint)}
+@keyframes rise{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.badge{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;
+ padding:3px 7px;border-radius:3px;flex:none;line-height:1.3;margin-top:1px}
+.badge.tool{background:var(--teal-tint);color:var(--teal-deep)}
+.badge.skill{background:var(--gold-tint);color:var(--gold)}
+.badge.res{background:#EEEAE0;color:var(--soft)}
+.step .body{min-width:0;flex:1}
+.step .nm{font-family:var(--mono);font-size:13px;color:var(--ink);font-weight:500}
+.step.res .nm{color:var(--soft);font-weight:400}
+.args{font-family:var(--mono);font-size:11.5px;color:var(--soft);margin-top:2px;
+ word-break:break-word}
+.args .k{color:var(--faint)}
+.preview{font-family:var(--mono);font-size:11.5px;color:var(--soft);margin-top:2px;
+ word-break:break-word;line-height:1.4}
+
+/* working pulse */
+.work{display:flex;align-items:center;gap:9px;padding:9px 0 4px 22px;position:relative}
+.work::before{content:"";position:absolute;left:-4px;top:13px;width:7px;height:7px;
+ border-radius:50%;background:var(--teal);animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.25}}
+.work span{font-family:var(--mono);font-size:11px;letter-spacing:.1em;
+ text-transform:uppercase;color:var(--faint)}
+
+/* briefing card */
+.briefing{background:var(--card);border:1px solid var(--line);border-radius:10px;
+ padding:20px 24px 4px;margin:14px 0 0;box-shadow:0 1px 0 rgba(27,36,48,.03),0 14px 30px -22px rgba(27,36,48,.35)}
+.briefing .lbl{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.briefing .lbl::before{content:"";width:9px;height:9px;background:var(--teal);
+ transform:rotate(45deg)}
+.doc{font-family:var(--serif);font-size:16.5px;line-height:1.62;color:var(--ink)}
+.doc h1,.doc h2,.doc h3{font-family:var(--display);font-weight:600;line-height:1.25;
+ margin:18px 0 6px}
+.doc h1{font-size:22px}.doc h2{font-size:19px}.doc h3{font-size:16.5px}
+.doc p{margin:10px 0}.doc strong{font-weight:600;color:var(--ink)}
+.doc ul,.doc ol{margin:8px 0;padding-left:22px}.doc li{margin:5px 0}
+.doc code{font-family:var(--mono);font-size:.86em;background:var(--paper);
+ padding:1px 5px;border-radius:4px}
+.doc em{color:var(--soft)}
+.doc table{border-collapse:collapse;margin:12px 0;font-family:var(--sans);font-size:14px}
+.doc th,.doc td{border:1px solid var(--line);padding:6px 11px;text-align:left}
+.doc th{background:var(--paper);font-weight:600}
+
+/* approval (HITL) */
+.appr-card{background:var(--amber-bg);border:1px solid var(--gold);border-radius:9px;
+ padding:14px 16px;margin:12px 0 2px}
+.appr-card .t{font-weight:600;color:var(--amber);margin-bottom:3px}
+.appr-card .d{font-family:var(--serif);font-size:14.5px;color:#6b4e12;margin-bottom:11px}
+.appr-card .row{display:flex;gap:9px}
+.btn{font-family:var(--sans);font-size:14px;font-weight:500;border:0;border-radius:7px;
+ padding:9px 18px;cursor:pointer}
+.btn.go{background:var(--teal);color:#fff}.btn.go:hover{background:var(--teal-deep)}
+.btn.no{background:transparent;color:var(--amber);border:1px solid var(--gold)}
+.btn.no:hover{background:var(--gold-tint)}
+
+.err{background:var(--red-bg);border:1px solid #E3B7B0;border-radius:9px;
+ padding:12px 15px;margin:12px 0 0;color:var(--red);font-size:14px}
+
+/* composer */
+footer{position:sticky;bottom:0;background:linear-gradient(180deg,rgba(246,244,239,0),var(--paper) 26%);
+ padding-top:8px}
+.dock{max-width:880px;margin:auto;padding:6px 22px 20px}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:4px 0 12px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chips button{flex:none;font-family:var(--sans);font-size:13px;color:var(--soft);
+ background:var(--card);border:1px solid var(--line);border-radius:999px;
+ padding:7px 14px;cursor:pointer;white-space:nowrap}
+.chips button:hover{border-color:var(--teal);color:var(--teal-deep)}
+.compose{display:flex;gap:10px;background:var(--card);border:1px solid var(--line);
+ border-radius:12px;padding:7px 7px 7px 16px;box-shadow:0 10px 26px -20px rgba(27,36,48,.4)}
+.compose:focus-within{border-color:var(--teal)}
+#q{flex:1;border:0;outline:0;background:transparent;font-family:var(--sans);
+ font-size:15.5px;color:var(--ink)}
+#q::placeholder{color:var(--faint)}
+.compose .btn.go{padding:10px 22px}
+@media(max-width:560px){.brand .sub{display:none}.mast{padding:13px 16px}
+ main{padding:20px 16px}.dock{padding:6px 16px 16px}}
+</style></head>
+<body>
+<header><div class=mast>
+ <div class=brand><span class=mark></span>
+  <h1>The Revenue Desk</h1><span class=sub>On-the-books intelligence</span></div>
+ <div class=chip id=health><span class=dot></span><span>connecting…</span></div>
+</div></header>
+
+<main id=log>
+ <p class=intro>Ask about <b>on-the-books revenue, pace, segments, or risk</b>.
+  The desk shows its work — every tool and skill it consults — then writes the briefing.</p>
+</main>
+
+<footer><div class=dock>
+ <div class=chips id=chips></div>
+ <div class=compose>
+  <input id=q placeholder="What's driving July? Are we too dependent on OTA?" autofocus>
+  <button class="btn go" onclick=send()>Ask</button>
+ </div>
+</div></footer>
+
 <script>
-const thread = 'web-' + Math.random().toString(36).slice(2);
-const log = document.getElementById('log'), hitl = document.getElementById('hitl');
-function add(html,cls){const d=document.createElement('div');d.className=cls;d.innerHTML=html;log.appendChild(d);window.scrollTo(0,document.body.scrollHeight);return d;}
+marked.setOptions({breaks:true});
+const thread='web-'+Math.random().toString(36).slice(2);
+const log=document.getElementById('log');
+let turn=null;
+
+const SAMPLES=[
+ "What's the July 2026 OTB summary?",
+ "Which segments are driving July 2026?",
+ "Are we too dependent on OTA?",
+ "How does July 2026 compare to last year?",
+ "As of 2026-05-01, how did July 2026 OTB look?"];
+const chips=document.getElementById('chips');
+SAMPLES.forEach(s=>{const b=document.createElement('button');b.textContent=s;
+ b.onclick=()=>{document.getElementById('q').value=s;send();};chips.appendChild(b);});
+
+fetch('/health').then(r=>r.json()).then(h=>{
+ const fp=(h.row_hash||h.db_fingerprint||'').slice(0,8);
+ document.getElementById('health').innerHTML=
+  '<span class=dot></span><span>rev '+(h.dataset_revision||'?')+' · '+
+  (h.financial_status_posted_only_rows||0)+' posted rows · fp '+fp+'</span>';
+}).catch(()=>{});
+
+function el(tag,cls,html){const d=document.createElement(tag);if(cls)d.className=cls;
+ if(html!=null)d.innerHTML=html;return d;}
+function esc(s){return (s==null?'':String(s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function fmtArgs(a){if(!a||!Object.keys(a).length)return '';
+ return Object.entries(a).map(([k,v])=>'<span class=k>'+esc(k)+'</span> '+esc(v)).join('  ·  ');}
+function scroll(){window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});}
+
+function newTurn(q){
+ const t=el('section','turn');
+ t.appendChild(el('div','ask','<div class=eyebrow>You asked</div><div class=q>'+esc(q)+'</div>'));
+ const tape=el('div','tape');tape.appendChild(el('div','eyebrow','&nbsp;Work tape'));
+ t.appendChild(tape);log.appendChild(t);
+ turn={root:t,tape:tape};working(true);scroll();
+}
+function working(on){
+ if(!turn)return;let w=turn.tape.querySelector('.work');
+ if(on){if(!w){w=el('div','work','<span>the desk is working</span>');turn.tape.appendChild(w);}}
+ else if(w)w.remove();
+}
+function step(kind,name,args,preview){
+ const cls=kind==='result'?'step res':'step';
+ const badge=kind==='skill'?'<span class="badge skill">skill</span>'
+   :kind==='result'?'<span class="badge res">result</span>'
+   :'<span class="badge tool">tool</span>';
+ let body='<div class=nm>'+esc(name)+'</div>';
+ if(kind==='result')body+='<div class=preview>'+esc(preview)+'</div>';
+ else{const a=fmtArgs(args);if(a)body+='<div class=args>'+a+'</div>';}
+ const s=el('div',cls,badge+'<div class=body>'+body+'</div>');
+ const w=turn.tape.querySelector('.work');
+ if(w)turn.tape.insertBefore(s,w);else turn.tape.appendChild(s);
+ scroll();
+}
+function briefing(text){
+ working(false);
+ const c=el('div','briefing','<div class=lbl><span class=eyebrow>Briefing</span></div>'+
+  '<div class=doc>'+marked.parse(text||'')+'</div>');
+ turn.root.appendChild(c);scroll();
+}
+function approval(){
+ working(false);
+ const c=el('div','appr-card',
+  '<div class=t>Approval required</div>'+
+  '<div class=d>This is a point-in-time rebuild (<code>get_as_of_otb</code>) — '+
+  'confirm the as-of snapshot before the desk runs it.</div>'+
+  '<div class=row><button class="btn go">Approve</button>'+
+  '<button class="btn no">Reject</button></div>');
+ const s=el('div','step appr','<span class="badge skill">approval</span>'+
+  '<div class=body></div>');
+ s.querySelector('.body').appendChild(c);turn.tape.appendChild(s);
+ c.querySelector('.go').onclick=()=>{s.remove();decide(true);};
+ c.querySelector('.no').onclick=()=>{s.remove();decide(false);};
+ scroll();
+}
+
 async function stream(url,payload){
-  const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+ try{
+  const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify(payload)});
   const rd=r.body.getReader(),dec=new TextDecoder();let buf='';
-  while(true){const{done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});
-    let i;while((i=buf.indexOf('\\n\\n'))>=0){const line=buf.slice(0,i).replace(/^data: /,'');buf=buf.slice(i+2);
-      if(!line)continue;const e=JSON.parse(line);
-      if(e.type==='tool')add('→ tool: '+e.name+' '+JSON.stringify(e.args),'ev');
-      else if(e.type==='skill')add('→ skill: '+e.name+' '+JSON.stringify(e.args),'ev');
-      else if(e.type==='result')add('  ↳ '+e.name+': '+e.preview,'ev res');
-      else if(e.type==='interrupt'){hitl.style.display='flex';}
-      else if(e.type==='error')add('⚠ '+e.message,'answer warn');
-      else if(e.type==='answer')add(e.text,'answer');
-    }}}
-function send(){const q=document.getElementById('q');if(!q.value)return;add('You: '+q.value,'you');stream('/chat',{message:q.value,thread});q.value='';}
-function decide(approve){hitl.style.display='none';stream('/resume',{approve,thread});}
+  while(true){const{done,value}=await rd.read();if(done)break;
+   buf+=dec.decode(value,{stream:true});
+   let i;while((i=buf.indexOf('\\n\\n'))>=0){
+    const line=buf.slice(0,i).replace(/^data: /,'');buf=buf.slice(i+2);
+    if(!line)continue;const e=JSON.parse(line);
+    if(e.type==='tool')step('tool',e.name,e.args);
+    else if(e.type==='skill')step('skill',e.name,e.args);
+    else if(e.type==='result')step('result',e.name,null,e.preview);
+    else if(e.type==='interrupt')approval();
+    else if(e.type==='error'){working(false);turn.root.appendChild(el('div','err','⚠ '+esc(e.message)));scroll();}
+    else if(e.type==='answer')briefing(e.text);
+    else if(e.type==='done')working(false);
+   }}
+ }catch(err){working(false);if(turn)turn.root.appendChild(el('div','err','⚠ '+esc(err.message)));}
+}
+function send(){const q=document.getElementById('q');const v=q.value.trim();if(!v)return;
+ newTurn(v);q.value='';stream('/chat',{message:v,thread});}
+function decide(approve){working(true);stream('/resume',{approve,thread});}
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
 </script></body></html>"""
 
