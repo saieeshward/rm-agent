@@ -19,6 +19,7 @@ import json
 import os
 import re
 import secrets
+import time
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -45,11 +46,25 @@ DEFAULT_MODEL = os.environ.get("MODEL", "openrouter:openai/gpt-oss-120b:free")
 
 # Models the UI may offer, with friendly labels. Only those whose API key is
 # actually configured are shown — so the picker never lists an option that 500s.
+# All openrouter:* free entries require tool-calling support (this is a tool-using
+# deep agent) — verified against OpenRouter's catalog. Free-tier quality varies;
+# the switcher lets the GM compare. Extend via the EXTRA_MODELS env var (see below).
 _MODEL_LABELS = {
-    "openrouter:openai/gpt-oss-120b:free": "gpt-oss-120b · free",
     "google_genai:gemini-2.5-flash": "Gemini 2.5 Flash · free",
+    "openrouter:openai/gpt-oss-120b:free": "gpt-oss-120b · free",
+    "openrouter:meta-llama/llama-3.3-70b-instruct:free": "Llama 3.3 70B · free",
+    "openrouter:qwen/qwen3-next-80b-a3b-instruct:free": "Qwen3 Next 80B · free",
     "anthropic:claude-sonnet-4-6": "Claude Sonnet 4.6",
 }
+
+# Optional: append models without a code change. Comma-separated "spec|Label"
+# (or just "spec"); e.g. EXTRA_MODELS="openrouter:mistralai/...:free|Mistral · free"
+for _entry in (os.environ.get("EXTRA_MODELS") or "").split(","):
+    _entry = _entry.strip()
+    if not _entry:
+        continue
+    _spec, _, _lbl = _entry.partition("|")
+    _MODEL_LABELS.setdefault(_spec.strip(), (_lbl.strip() or _spec.strip().split(":", 1)[-1]))
 
 
 def _key_present(spec: str) -> bool:
@@ -130,7 +145,11 @@ def _sse(event: dict) -> str:
 _SKILL_PATH = re.compile(r"skills/([^/]+)/SKILL", re.IGNORECASE)
 
 
-def _events(chunk: dict):
+def _events(chunk: dict, pending: dict):
+    """Yield SSE events for a stream chunk. `pending` carries per-tool-call start
+    times across chunks so each result reports how long that call (incl. a whole
+    subagent delegation) took."""
+    now = time.monotonic()
     for _node, update in chunk.items():
         msgs = (update or {}).get("messages", []) if isinstance(update, dict) else []
         for msg in msgs:
@@ -138,7 +157,12 @@ def _events(chunk: dict):
                 for tc in (msg.tool_calls or []):
                     name = tc["name"]
                     args = tc.get("args", {}) or {}
-                    if name in ("read_file", "ls", "glob", "grep"):
+                    if name == "task":
+                        # delegation to a subagent — credit the subagent by name,
+                        # not the generic "task" tool. Its result time == subagent time.
+                        kind = "subagent"
+                        name = args.get("subagent_type") or "segment-analyst"
+                    elif name in ("read_file", "ls", "glob", "grep"):
                         kind = "skill"
                         # surface the actual skill name (skills/<name>/SKILL.md),
                         # so the work tape credits the skill, not a generic read_file
@@ -148,10 +172,17 @@ def _events(chunk: dict):
                             name = m.group(1)
                     else:
                         kind = "tool"
+                    if tc.get("id"):
+                        pending[tc["id"]] = (name, kind, now)
                     yield {"type": kind, "name": name, "args": args}
             elif isinstance(msg, ToolMessage):
-                yield {"type": "result", "name": msg.name,
-                       "preview": str(msg.content)[:200].replace("\n", " ")}
+                label, _kind, start = pending.pop(
+                    getattr(msg, "tool_call_id", None), (msg.name, "tool", None))
+                ev = {"type": "result", "name": label,
+                      "preview": str(msg.content)[:200].replace("\n", " ")}
+                if start is not None:
+                    ev["ms"] = int((now - start) * 1000)
+                yield ev
 
 
 def _final_text(state) -> str:
@@ -166,9 +197,10 @@ def _final_text(state) -> str:
 def _stream(payload, thread: str, model: str | None = None):
     agent = get_agent(model)
     cfg = {"configurable": {"thread_id": thread}, "recursion_limit": 50}
+    pending: dict = {}
     try:
         for chunk in agent.stream(payload, config=cfg, stream_mode="updates"):
-            for ev in _events(chunk):
+            for ev in _events(chunk, pending):
                 yield _sse(ev)
         state = agent.get_state(cfg)
         if state.next:
@@ -280,7 +312,10 @@ main{flex:1;width:100%;max-width:880px;margin:auto;padding:26px 22px 30px}
  padding:3px 7px;border-radius:3px;flex:none;line-height:1.3;margin-top:1px}
 .badge.tool{background:var(--teal-tint);color:var(--teal-deep)}
 .badge.skill{background:var(--gold-tint);color:var(--gold)}
+.badge.subagent{background:var(--teal-deep);color:#fff}
 .badge.res{background:#EEEAE0;color:var(--soft)}
+.dur{font-family:var(--mono);font-size:10px;color:var(--faint);margin-left:8px;
+ letter-spacing:.03em}
 .step .body{min-width:0;flex:1}
 .step .nm{font-family:var(--mono);font-size:13px;color:var(--ink);font-weight:500}
 .step.res .nm{color:var(--soft);font-weight:400}
@@ -430,12 +465,15 @@ function working(on){
  if(on){if(!w){w=el('div','work','<span>the desk is working</span>');turn.tape.appendChild(w);}}
  else if(w)w.remove();
 }
-function step(kind,name,args,preview){
- const cls=kind==='result'?'step res':'step';
+function fmtMs(ms){return ms>=1000?(ms/1000).toFixed(ms>=10000?0:1)+'s':ms+'ms';}
+function step(kind,name,args,preview,ms){
+ const cls=kind==='result'?'step res':kind==='subagent'?'step sub':'step';
  const badge=kind==='skill'?'<span class="badge skill">skill</span>'
+   :kind==='subagent'?'<span class="badge subagent">subagent</span>'
    :kind==='result'?'<span class="badge res">result</span>'
    :'<span class="badge tool">tool</span>';
- let body='<div class=nm>'+esc(name)+'</div>';
+ const dur=(ms!=null)?'<span class=dur>'+fmtMs(ms)+'</span>':'';
+ let body='<div class=nm>'+esc(name)+dur+'</div>';
  if(kind==='result')body+='<div class=preview>'+esc(preview)+'</div>';
  else{const a=fmtArgs(args);if(a)body+='<div class=args>'+a+'</div>';}
  const s=el('div',cls,badge+'<div class=body>'+body+'</div>');
@@ -476,8 +514,9 @@ async function stream(url,payload){
     const line=buf.slice(0,i).replace(/^data: /,'');buf=buf.slice(i+2);
     if(!line)continue;const e=JSON.parse(line);
     if(e.type==='tool')step('tool',e.name,e.args);
+    else if(e.type==='subagent')step('subagent',e.name,e.args);
     else if(e.type==='skill')step('skill',e.name,e.args);
-    else if(e.type==='result')step('result',e.name,null,e.preview);
+    else if(e.type==='result')step('result',e.name,null,e.preview,e.ms);
     else if(e.type==='interrupt')approval();
     else if(e.type==='error'){working(false);turn.root.appendChild(el('div','err','⚠ '+esc(e.message)));scroll();}
     else if(e.type==='answer')briefing(e.text);
