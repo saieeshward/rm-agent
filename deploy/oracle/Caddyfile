@@ -1,0 +1,6 @@
+# Caddy gets a real Let's Encrypt cert for SITE_ADDRESS automatically.
+# SITE_ADDRESS must be a hostname that resolves to this VM's public IP and be
+# reachable on ports 80/443 (e.g. an *.nip.io name like 203-0-113-5.nip.io).
+{$SITE_ADDRESS} {
+	reverse_proxy app:8000
+}

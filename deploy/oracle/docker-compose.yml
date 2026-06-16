@@ -1,0 +1,61 @@
+# Production stack for an Oracle Cloud Always-Free VM (Ubuntu + Docker).
+#   app      — FastAPI Deep Agent (built from the repo-root Dockerfile)
+#   postgres — the hosted DB (persistent named volume)
+#   caddy    — reverse proxy with automatic HTTPS (Let's Encrypt)
+#
+# Bring up from this directory:  docker compose up -d --build
+# Data is loaded separately into `postgres` (see README.md, step 5).
+services:
+  postgres:
+    image: postgres:16
+    container_name: rm-postgres
+    environment:
+      POSTGRES_USER: hackathon
+      POSTGRES_PASSWORD: hackathon
+      POSTGRES_DB: hotel_hackathon
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hackathon -d hotel_hackathon"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  app:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: rm-app
+    environment:
+      MODEL: ${MODEL}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER}
+      BASIC_AUTH_PASS: ${BASIC_AUTH_PASS}
+      DATABASE_URL: postgresql://hackathon:hackathon@postgres:5432/hotel_hackathon
+      PORT: "8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    container_name: rm-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
