@@ -14,16 +14,11 @@ primary_region = "lhr"   # London; change to a region near you
 [http_service]
   internal_port = 8000
   force_https = true
-  auto_stop_machines = false   # keep it up for the 7-day live window
+  # Scale to zero when idle to conserve free-tier usage; cold-start on the next
+  # request. No periodic health check — polling would keep the machine awake.
+  auto_stop_machines = "stop"
   auto_start_machines = true
-  min_machines_running = 1
-
-  [[http_service.checks]]
-    method = "GET"
-    path = "/health"
-    interval = "30s"
-    timeout = "5s"
-    grace_period = "20s"
+  min_machines_running = 0
 
 [[vm]]
   size = "shared-cpu-1x"
