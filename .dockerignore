@@ -1,0 +1,13 @@
+.git
+.venv
+.pytest_cache
+__pycache__
+**/__pycache__
+.playwright-mcp
+etl/.cache
+tests
+docs
+evals
+*.md
+.env
+.env.example

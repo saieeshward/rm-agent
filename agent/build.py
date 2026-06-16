@@ -20,6 +20,7 @@ from pathlib import Path
 
 from deepagents import create_deep_agent
 from deepagents.backends import FilesystemBackend
+from deepagents.middleware.filesystem import FilesystemPermission
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 
@@ -43,6 +44,11 @@ SKILLS_DIR = ROOT / "skills"
 SKILL_SOURCES = ["skills"]
 
 DEFAULT_MODEL = "anthropic:claude-sonnet-4-6"
+
+# The filesystem backend exists only so the skills middleware can READ SKILL.md
+# files. The agent has no business writing to the repo, so deny every write — this
+# stops a weak model from "editing" a skill mid-answer (observed with gpt-4o-mini).
+READ_ONLY_FS = [FilesystemPermission(operations=["write"], paths=["/**"], mode="deny")]
 
 
 def resolve_model(model=None):
@@ -110,6 +116,7 @@ def build_agent(model=None, checkpointer=None, store=None):
         subagents=[SEGMENT_SUBAGENT],
         skills=SKILL_SOURCES,
         backend=FilesystemBackend(root_dir=str(ROOT), virtual_mode=True),
+        permissions=READ_ONLY_FS,
         interrupt_on={HITL_TOOL: True},
         checkpointer=checkpointer or MemorySaver(),
         store=store or InMemoryStore(),

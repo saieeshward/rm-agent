@@ -3,9 +3,11 @@
   [x] 3. Write ≥6 skills (≥3 with a numeric threshold + recommended action) that teach revenue-manager judgment, not just metric definitions.
   [x] 4. Wire a LangChain Deep Agent using all building blocks: tools, skills, a subagent (segment work), planning, memory, and HITL approval on get_as_of_otb.
   [x] 5. Write tests: ETL ≥3, tools ≥10, skills ≥5, agent ≥4.
-  6. Deploy hosted Postgres + agent + a UI that streams tool/skill calls + GET /health + basic auth, and keep it up ≥7 days.
+  ~6. Deploy hosted Postgres + agent + a UI that streams tool/skill calls + GET /health + basic auth, and keep it up ≥7 days.
+      Deploy assets ready + validated locally (Dockerfile, requirements-deploy.txt, fly.toml, scripts/init_db.sh, docs/DEPLOY.md);
+      image builds (291MB) and container serves /health + basic-auth UI. REMAINING: pick host (Fly recommended), `fly deploy`, keep up 7d.
   7. Commit the artifacts: ATTESTATION.md, etl/SCRAPE_MANIFEST.json, etl/LOAD_PROOF.json, tools/METRIC_DEFINITIONS.md, ARCHITECTURE.md, then submit repo + live
-  URL + credentials.
+  URL + credentials.  (Artifacts refreshed for anchor 2026-06-16; SHA 3388ad54 matches /verify. REMAINING: push repo + share live URL + creds.)
 
   Watch the traps: grain (row ≠ reservation ≠ room night), two revenue columns, right date field, exclude cancelled+provisional by default, effective
   macro_group, and the otel_challenge_token honeypot (not in the schema — don't load it).

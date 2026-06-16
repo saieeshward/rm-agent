@@ -4,7 +4,7 @@
 
 - Name: EESH-843
 - Repository URL: https://github.com/saieeshward/otel-rm-agent
-- Date: 2026-06-15
+- Date: 2026-06-16
 
 ---
 
@@ -84,7 +84,7 @@ How will you prove you did not miss the last list page during ETL?
 > Read `total_reservations` from `/verify` up front, page through the list until the page indicator reaches
 > its last page, then assert collected `count(distinct reservation_id)` equals `/verify` and equals
 > `SCRAPE_MANIFEST.reservation_ids_count`. `reservation_ids_sha256` (sha of sorted ids) must match the DB,
-> and the load's `reservation_stay_status_sha256` must match `/verify` — which it does (`da950a13…`).
+> and the load's `reservation_stay_status_sha256` must match `/verify` — which it does (`3388ad54…`).
 
 ### 11. Tool grain
 
@@ -121,5 +121,5 @@ scrape against (must match `/verify` on load day).
 > Playwright (headless Chromium, assets blocked) pages the client-rendered list 100/page and drills into
 > each `/reservations/<id>` detail (`<dl>` fields + per-night stay-rows table), concurrently; load is an
 > idempotent single-transaction truncate-and-reload (lookups→facts; the rate_plan FK is relaxed per Option
-> D) with a `load_manifest` row each run. Anchor date **2026-06-14** (`dataset_revision 2026.06.12.2`),
+> D) with a `load_manifest` row each run. Anchor date **2026-06-16** (`dataset_revision 2026.06.12.2`),
 > reconciled against `/verify` — re-scrape and re-reconcile on the actual submit day.

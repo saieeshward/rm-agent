@@ -47,7 +47,7 @@ def main() -> None:
     # halts a runaway (e.g. a small model re-calling the same tool dozens of times).
     config = {"configurable": {"thread_id": args.thread}, "recursion_limit": 50}
     today = datetime.date.today().isoformat()
-    primer = (f"(Context: today is {today}; dataset anchor ~2026-06-14; "
+    primer = (f"(Context: today is {today}; dataset anchor ~2026-06-16; "
               f"stay months are 'YYYY-MM', STLY = year minus one.)\n\n")
     payload: object = {"messages": [{"role": "user", "content": primer + args.question}]}
 
