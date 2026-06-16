@@ -32,15 +32,61 @@ security = HTTPBasic()
 USER = os.environ.get("BASIC_AUTH_USER", "gm")
 PASSWORD = os.environ.get("BASIC_AUTH_PASS", "hackathon")
 
-_agent = None
+# One agent per model spec, all sharing the same checkpointer + store so the
+# conversation (thread) memory survives a mid-session model switch.
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.store.memory import InMemoryStore
+
+_CHECKPOINTER = MemorySaver()
+_STORE = InMemoryStore()
+_agents: dict[str, object] = {}
+
+DEFAULT_MODEL = os.environ.get("MODEL", "openrouter:openai/gpt-oss-120b:free")
+
+# Models the UI may offer, with friendly labels. Only those whose API key is
+# actually configured are shown — so the picker never lists an option that 500s.
+_MODEL_LABELS = {
+    "openrouter:openai/gpt-oss-120b:free": "gpt-oss-120b · free",
+    "google_genai:gemini-2.5-flash": "Gemini 2.5 Flash · free",
+    "anthropic:claude-sonnet-4-6": "Claude Sonnet 4.6",
+}
 
 
-def get_agent():
-    global _agent
-    if _agent is None:
+def _key_present(spec: str) -> bool:
+    if spec.startswith("openrouter:"):
+        return bool(os.environ.get("OPENROUTER_API_KEY"))
+    if spec.startswith("google_genai:"):
+        return bool(os.environ.get("GOOGLE_API_KEY"))
+    if spec.startswith("anthropic:"):
+        return bool(os.environ.get("ANTHROPIC_API_KEY"))
+    if spec.startswith("openai:"):
+        return bool(os.environ.get("OPENAI_API_KEY"))
+    return True  # ollama / local
+
+
+def available_models() -> list[dict]:
+    """Default model first, then any other known candidate whose key is set."""
+    specs, seen, out = [DEFAULT_MODEL, *_MODEL_LABELS], set(), []
+    for spec in specs:
+        if spec in seen or not _key_present(spec):
+            continue
+        seen.add(spec)
+        out.append({"spec": spec, "label": _MODEL_LABELS.get(spec, spec.split(":", 1)[-1])})
+    return out
+
+
+def get_agent(model: str | None = None):
+    valid = {m["spec"] for m in available_models()}
+    spec = model if model in valid else DEFAULT_MODEL
+    if spec not in _agents:
         from agent.build import build_agent
-        _agent = build_agent()
-    return _agent
+        _agents[spec] = build_agent(model=spec, checkpointer=_CHECKPOINTER, store=_STORE)
+    return _agents[spec]
+
+
+@app.get("/models")
+def models():
+    return JSONResponse({"default": DEFAULT_MODEL, "options": available_models()})
 
 
 def require_auth(creds: HTTPBasicCredentials = Depends(security)) -> str:
@@ -117,13 +163,14 @@ def _final_text(state) -> str:
     return content
 
 
-def _stream(payload, thread: str):
+def _stream(payload, thread: str, model: str | None = None):
+    agent = get_agent(model)
     cfg = {"configurable": {"thread_id": thread}, "recursion_limit": 50}
     try:
-        for chunk in get_agent().stream(payload, config=cfg, stream_mode="updates"):
+        for chunk in agent.stream(payload, config=cfg, stream_mode="updates"):
             for ev in _events(chunk):
                 yield _sse(ev)
-        state = get_agent().get_state(cfg)
+        state = agent.get_state(cfg)
         if state.next:
             yield _sse({"type": "interrupt", "tool": "get_as_of_otb",
                         "message": "Point-in-time rebuild needs approval."})
@@ -152,7 +199,7 @@ async def chat(request: Request, user: str = Depends(require_auth)):
               "are 'YYYY-MM'; if a month isn't specified, use the upcoming month "
               "2026-07. STLY = same month, year minus one.)\n\n")
     payload = {"messages": [{"role": "user", "content": primer + body["message"]}]}
-    return StreamingResponse(_stream(payload, thread), media_type="text/event-stream")
+    return StreamingResponse(_stream(payload, thread, body.get("model")), media_type="text/event-stream")
 
 
 @app.post("/resume")
@@ -163,7 +210,7 @@ async def resume(request: Request, user: str = Depends(require_auth)):
     approve = bool(body.get("approve"))
     decision = {"type": "approve"} if approve else {"type": "reject", "message": "Not approved by GM."}
     payload = Command(resume={"decisions": [decision]})
-    return StreamingResponse(_stream(payload, thread), media_type="text/event-stream")
+    return StreamingResponse(_stream(payload, thread, body.get("model")), media_type="text/event-stream")
 
 
 # --------------------------------------------------------------------------- #
@@ -295,6 +342,13 @@ footer{position:sticky;bottom:0;background:linear-gradient(180deg,rgba(246,244,2
  background:var(--card);border:1px solid var(--line);border-radius:999px;
  padding:7px 14px;cursor:pointer;white-space:nowrap}
 .chips button:hover{border-color:var(--teal);color:var(--teal-deep)}
+.modelbar{display:flex;justify-content:flex-end;align-items:center;gap:7px;
+ padding:0 2px 8px;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;
+ text-transform:uppercase;color:var(--faint)}
+.modelbar select{font-family:var(--mono);font-size:11px;letter-spacing:0;
+ text-transform:none;color:var(--soft);background:var(--card);border:1px solid var(--line);
+ border-radius:7px;padding:4px 9px;cursor:pointer}
+.modelbar select:hover{border-color:var(--teal)}
 .compose{display:flex;gap:10px;background:var(--card);border:1px solid var(--line);
  border-radius:12px;padding:7px 7px 7px 16px;box-shadow:0 10px 26px -20px rgba(27,36,48,.4)}
 .compose:focus-within{border-color:var(--teal)}
@@ -318,6 +372,7 @@ footer{position:sticky;bottom:0;background:linear-gradient(180deg,rgba(246,244,2
 </main>
 
 <footer><div class=dock>
+ <div class=modelbar id=modelbar><span>Model</span><select id=model></select></div>
  <div class=chips id=chips></div>
  <div class=compose>
   <input id=q placeholder="What's driving July? Are we too dependent on OTA?" autofocus>
@@ -340,6 +395,14 @@ const SAMPLES=[
 const chips=document.getElementById('chips');
 SAMPLES.forEach(s=>{const b=document.createElement('button');b.textContent=s;
  b.onclick=()=>{document.getElementById('q').value=s;send();};chips.appendChild(b);});
+
+const modelSel=document.getElementById('model');
+fetch('/models').then(r=>r.json()).then(m=>{
+ modelSel.innerHTML=m.options.map(o=>'<option value="'+esc(o.spec)+'"'+
+  (o.spec===m.default?' selected':'')+'>'+esc(o.label)+'</option>').join('');
+ if((m.options||[]).length<2)document.getElementById('modelbar').style.display='none';
+}).catch(()=>{document.getElementById('modelbar').style.display='none';});
+function curModel(){return modelSel.value||undefined;}
 
 fetch('/health').then(r=>r.json()).then(h=>{
  const fp=(h.row_hash||h.db_fingerprint||'').slice(0,8);
@@ -423,8 +486,8 @@ async function stream(url,payload){
  }catch(err){working(false);if(turn)turn.root.appendChild(el('div','err','⚠ '+esc(err.message)));}
 }
 function send(){const q=document.getElementById('q');const v=q.value.trim();if(!v)return;
- newTurn(v);q.value='';stream('/chat',{message:v,thread});}
-function decide(approve){working(true);stream('/resume',{approve,thread});}
+ newTurn(v);q.value='';stream('/chat',{message:v,thread,model:curModel()});}
+function decide(approve){working(true);stream('/resume',{approve,thread,model:curModel()});}
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
 </script></body></html>"""
 

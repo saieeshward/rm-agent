@@ -11,5 +11,9 @@ deepagents>=0.6
 langchain>=1.0
 python-dotenv>=1.0
 
-# Model provider matching MODEL=openrouter:* (swap if MODEL changes):
-langchain-openai>=0.2
+# Model providers — all installed so the in-app model switcher can resolve any of
+# them at runtime (each is used only when the selected model needs it, and only if
+# its API key env var is set):
+langchain-openai>=0.2          # openrouter:* and openai:*
+langchain-google-genai>=2.0    # google_genai:*  (GOOGLE_API_KEY)
+langchain-anthropic>=0.3       # anthropic:*      (ANTHROPIC_API_KEY)
