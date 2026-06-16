@@ -31,6 +31,13 @@ def get_pool() -> ConnectionPool:
             min_size=1,
             max_size=int(os.environ.get("DB_POOL_MAX", "10")),
             kwargs={"autocommit": True},
+            # Hosted Postgres (e.g. Fly) drops idle connections, so a pooled
+            # connection can be dead by the time it is handed out. check
+            # validates (and replaces) a connection before each use; max_idle /
+            # max_lifetime recycle them so we never sit on a server-closed socket.
+            check=ConnectionPool.check_connection,
+            max_idle=60.0,
+            max_lifetime=600.0,
             open=True,
         )
     return _pool
