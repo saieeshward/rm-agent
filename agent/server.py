@@ -49,14 +49,18 @@ DEFAULT_MODEL = os.environ.get("MODEL", "openrouter:openai/gpt-oss-120b:free")
 # All openrouter:* free entries require tool-calling support (this is a tool-using
 # deep agent) — verified against OpenRouter's catalog. Free-tier quality varies;
 # the switcher lets the GM compare. Extend via the EXTRA_MODELS env var (see below).
-# Curated to models that reliably drive this tool-using agent: Gemini (clean
-# briefings, default) and Llama 3.3 70B (solid tool-calling) on free tiers, plus
-# Claude when a key is set. gpt-oss-120b (garbled briefings) and the experimental
-# large free models (Qwen3 / Nemotron / Gemma — slow + frequent 429s) were dropped.
-# Add others without a code change via the EXTRA_MODELS env var (below).
+# All openrouter:* free entries require tool-calling support (this is a tool-using
+# deep agent) — verified against OpenRouter's catalog. Free-tier quality/availability
+# varies (gpt-oss can produce loose briefings; the big Nemotrons can be slow / 429),
+# so the GM can switch. Gemini is the default; add more via EXTRA_MODELS (below).
 _MODEL_LABELS = {
     "google_genai:gemini-2.5-flash": "Gemini 2.5 Flash · free",
+    "openrouter:openai/gpt-oss-120b:free": "gpt-oss-120b · free",
     "openrouter:meta-llama/llama-3.3-70b-instruct:free": "Llama 3.3 70B · free",
+    "openrouter:qwen/qwen3-next-80b-a3b-instruct:free": "Qwen3 Next 80B · free",
+    "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free": "Nemotron 3 Ultra 550B · free",
+    "openrouter:nvidia/nemotron-3-super-120b-a12b:free": "Nemotron 3 Super 120B · free",
+    "openrouter:google/gemma-4-31b-it:free": "Gemma 4 31B · free",
     "anthropic:claude-sonnet-4-6": "Claude Sonnet 4.6",
 }
 
