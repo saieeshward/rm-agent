@@ -14,10 +14,10 @@ Model comes from MODEL (.env); the agent is built lazily so /health works with n
 
 from __future__ import annotations
 
-import datetime
 import hashlib
 import json
 import os
+import re
 import secrets
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -81,6 +81,9 @@ def _sse(event: dict) -> str:
     return f"data: {json.dumps(event)}\n\n"
 
 
+_SKILL_PATH = re.compile(r"skills/([^/]+)/SKILL", re.IGNORECASE)
+
+
 def _events(chunk: dict):
     for _node, update in chunk.items():
         msgs = (update or {}).get("messages", []) if isinstance(update, dict) else []
@@ -88,8 +91,18 @@ def _events(chunk: dict):
             if isinstance(msg, AIMessage):
                 for tc in (msg.tool_calls or []):
                     name = tc["name"]
-                    kind = "skill" if name in ("read_file", "ls", "glob", "grep") else "tool"
-                    yield {"type": kind, "name": name, "args": tc.get("args", {})}
+                    args = tc.get("args", {}) or {}
+                    if name in ("read_file", "ls", "glob", "grep"):
+                        kind = "skill"
+                        # surface the actual skill name (skills/<name>/SKILL.md),
+                        # so the work tape credits the skill, not a generic read_file
+                        path = str(args.get("file_path") or args.get("path") or "")
+                        m = _SKILL_PATH.search(path)
+                        if m:
+                            name = m.group(1)
+                    else:
+                        kind = "tool"
+                    yield {"type": kind, "name": name, "args": args}
             elif isinstance(msg, ToolMessage):
                 yield {"type": "result", "name": msg.name,
                        "preview": str(msg.content)[:200].replace("\n", " ")}
@@ -118,8 +131,13 @@ def _stream(payload, thread: str):
             yield _sse({"type": "answer", "text": _final_text(state)})
     except Exception as exc:  # surface model/rate-limit errors instead of hanging
         msg = str(exc)
-        if "RESOURCE_EXHAUSTED" in msg or "429" in msg or "rate" in msg.lower():
+        low = msg.lower()
+        if "resource_exhausted" in low or "429" in msg or "rate" in low:
             msg = "Model rate limit / quota exceeded — retry shortly or use a model with more capacity."
+        elif "'messages'" in msg or msg.strip() in ("", "None"):
+            # the provider returned a malformed/error payload (seen under concurrent
+            # bursts on gpt-4o-mini) instead of a completion — present it cleanly.
+            msg = "The model returned an unexpected response (likely a transient rate-limit). Please retry."
         yield _sse({"type": "error", "message": msg[:400]})
     yield _sse({"type": "done"})
 
@@ -128,9 +146,11 @@ def _stream(payload, thread: str):
 async def chat(request: Request, user: str = Depends(require_auth)):
     body = await request.json()
     thread = body.get("thread", "web")
-    today = datetime.date.today().isoformat()
-    primer = (f"(Context: today is {today}; dataset anchor ~2026-06-16; stay months "
-              f"are 'YYYY-MM', STLY = year minus one.)\n\n")
+    # Pin "today" to the dataset anchor (the data is locked to this load), so the
+    # agent never drifts to a wrong month over the 7-day window or guesses a past year.
+    primer = ("(Context: treat today as 2026-06-16 — the dataset anchor. Stay months "
+              "are 'YYYY-MM'; if a month isn't specified, use the upcoming month "
+              "2026-07. STLY = same month, year minus one.)\n\n")
     payload = {"messages": [{"role": "user", "content": primer + body["message"]}]}
     return StreamingResponse(_stream(payload, thread), media_type="text/event-stream")
 
@@ -151,7 +171,7 @@ async def resume(request: Request, user: str = Depends(require_auth)):
 # --------------------------------------------------------------------------- #
 PAGE = """<!doctype html><html lang=en><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
-<title>The Revenue Desk</title>
+<title>Grand Harbour Hotel — Revenue Desk</title>
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel=stylesheet>
@@ -288,7 +308,7 @@ footer{position:sticky;bottom:0;background:linear-gradient(180deg,rgba(246,244,2
 <body>
 <header><div class=mast>
  <div class=brand><span class=mark></span>
-  <h1>The Revenue Desk</h1><span class=sub>On-the-books intelligence</span></div>
+  <h1>Grand Harbour Hotel</h1><span class=sub>Revenue Desk · on-the-books intelligence</span></div>
  <div class=chip id=health><span class=dot></span><span>connecting…</span></div>
 </div></header>
 

@@ -72,6 +72,10 @@ def resolve_model(model=None):
             temperature=0,
             base_url="https://openrouter.ai/api/v1",
             api_key=os.environ.get("OPENROUTER_API_KEY"),
+            # retry transient provider errors (429 / malformed bursts) so a
+            # concurrent spike degrades gracefully instead of failing the turn
+            max_retries=4,
+            timeout=60,
         )
     return spec
 
