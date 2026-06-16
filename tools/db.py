@@ -31,7 +31,7 @@ def get_pool() -> ConnectionPool:
             min_size=1,
             max_size=int(os.environ.get("DB_POOL_MAX", "10")),
             kwargs={"autocommit": True},
-            # Hosted Postgres (e.g. Fly) drops idle connections, so a pooled
+            # Hosted Postgres (e.g. Neon serverless) drops idle connections, so a pooled
             # connection can be dead by the time it is handed out. check
             # validates (and replaces) a connection before each use; max_idle /
             # max_lifetime recycle them so we never sit on a server-closed socket.

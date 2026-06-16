@@ -6,9 +6,9 @@
 #   4. print the row_hash so you can confirm it matches etl/LOAD_PROOF.json / /verify
 #
 # Point DATABASE_URL at the TARGET database, then run from the repo root, e.g.:
-#   Fly:    fly proxy 5432 -a otel-rm-db &           # tunnel the managed PG to localhost
-#           DATABASE_URL='postgresql://postgres:<pw>@localhost:5432/postgres' ./scripts/init_db.sh
-#   Render: DATABASE_URL='<external connection string>' ./scripts/init_db.sh
+#   Neon:  DATABASE_URL='postgresql://...-pooler...neon.tech/db?sslmode=require' ./scripts/init_db.sh
+#          (if local :5432 egress is firewalled, paste neon_bootstrap.sql into Neon's SQL Editor instead)
+#   Local: DATABASE_URL='postgresql://hackathon:hackathon@localhost:5432/hotel_hackathon' ./scripts/init_db.sh
 #
 # Re-runnable: the load truncates and reloads, so running it again just refreshes the data.
 set -euo pipefail
