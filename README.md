@@ -30,5 +30,23 @@ a segment subagent, planning, memory, and human-in-the-loop approval.
 docker compose up        # Postgres on :5432 (hotel_hackathon / hackathon / hackathon)
 ```
 
+## Deploy (Neon Postgres + Render)
+
+The hosted demo runs as two free pieces: a **Neon** Postgres (persistent, no card)
+and the agent web app on **Render** (free Docker web service, see `render.yaml`).
+
+```bash
+# 1. Create a Neon project, copy its pooled connection string, then load it once:
+DATABASE_URL='postgresql://USER:PW@ep-xxx.neon.tech/dbname?sslmode=require' \
+  ./scripts/init_db.sh         # applies schema + cached data + views, prints row_hash
+
+# 2. Render dashboard -> New -> Blueprint -> pick the repo -> Apply.
+#    Fill the secret env vars (MODEL, OPENROUTER_API_KEY, DATABASE_URL=<same Neon URL>,
+#    BASIC_AUTH_USER, BASIC_AUTH_PASS). The Dockerfile binds uvicorn to $PORT.
+
+# 3. Confirm the deployed DB matches the proof (no auth needed on /health):
+curl -s https://<your-app>.onrender.com/health   # row_hash must equal etl/LOAD_PROOF.json
+```
+
 See `docs/brief/CHALLENGE_BRIEF.md` for the full domain reference and `PROJECT.clan`
 for current build status (`clan read agent PROJECT.clan`).

@@ -77,6 +77,28 @@ def resolve_model(model=None):
             max_retries=4,
             timeout=60,
         )
+    if spec.startswith("groq:"):
+        # Groq's OpenAI-compatible gateway — fast, free tier, separate quota.
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=spec.split(":", 1)[1],
+            temperature=0,
+            base_url="https://api.groq.com/openai/v1",
+            api_key=os.environ.get("GROQ_API_KEY"),
+            max_retries=4,
+            timeout=60,
+        )
+    if spec.startswith("cerebras:"):
+        # Cerebras OpenAI-compatible gateway — fast, free tier, separate quota.
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=spec.split(":", 1)[1],
+            temperature=0,
+            base_url="https://api.cerebras.ai/v1",
+            api_key=os.environ.get("CEREBRAS_API_KEY"),
+            max_retries=4,
+            timeout=60,
+        )
     return spec
 
 SEGMENT_SUBAGENT = {

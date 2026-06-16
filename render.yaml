@@ -1,0 +1,51 @@
+# Render blueprint for the Revenue Manager Agent (replaces the retired Fly.io deploy).
+#
+# Postgres is NOT defined here — it lives on Neon (free, persistent). Load it once
+# with scripts/init_db.sh against the Neon connection string, then deploy this app
+# and point DATABASE_URL at the same Neon URL.
+#
+#   1. Push this file to the public repo (github.com/saieeshward/rm-agent).
+#   2. Render dashboard -> New -> Blueprint -> pick the repo -> Apply.
+#   3. Fill the five secret env vars when prompted (sync:false -> not stored in git):
+#        MODEL=openrouter:openai/gpt-oss-120b:free
+#        OPENROUTER_API_KEY=sk-or-...
+#        DATABASE_URL=postgresql://...neon.tech/...?sslmode=require
+#        BASIC_AUTH_USER=gm
+#        BASIC_AUTH_PASS=<pick one>
+#
+# The Dockerfile already binds uvicorn to $PORT, which Render injects.
+services:
+  - type: web
+    name: otel-rm-agent
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free            # 512 MB; spins down when idle, cold-starts on request
+    region: frankfurt     # EU, near the London-origin dataset; change if preferred
+    healthCheckPath: /health   # unauthenticated; returns the DB fingerprint fields
+    autoDeploy: true      # redeploy on push to the default branch
+    envVars:
+      # Default model (pre-selected in the UI; the in-app dropdown can switch per
+      # question). Committed here so it's blueprint-managed — no dashboard editing.
+      - key: MODEL
+        value: google_genai:gemini-2.5-flash
+      - key: OPENROUTER_API_KEY
+        sync: false
+      # Optional extra model providers — set the key to make that model appear in
+      # the in-app switcher (leave blank to hide it). Set MODEL to the default model.
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: CEREBRAS_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: BASIC_AUTH_USER
+        sync: false
+      - key: BASIC_AUTH_PASS
+        sync: false
+      # Keep the pool small on the 512 MB free instance (OOM headroom).
+      - key: DB_POOL_MAX
+        value: "5"

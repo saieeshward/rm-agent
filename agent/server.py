@@ -19,6 +19,7 @@ import json
 import os
 import re
 import secrets
+import time
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -32,15 +33,93 @@ security = HTTPBasic()
 USER = os.environ.get("BASIC_AUTH_USER", "gm")
 PASSWORD = os.environ.get("BASIC_AUTH_PASS", "hackathon")
 
-_agent = None
+# One agent per model spec, all sharing the same checkpointer + store so the
+# conversation (thread) memory survives a mid-session model switch.
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.store.memory import InMemoryStore
+
+_CHECKPOINTER = MemorySaver()
+_STORE = InMemoryStore()
+_agents: dict[str, object] = {}
+
+DEFAULT_MODEL = os.environ.get("MODEL", "openrouter:openai/gpt-oss-120b:free")
+
+# Models the UI may offer, with friendly labels. Only those whose API key is
+# actually configured are shown — so the picker never lists an option that 500s.
+# All openrouter:* free entries require tool-calling support (this is a tool-using
+# deep agent) — verified against OpenRouter's catalog. Free-tier quality varies;
+# the switcher lets the GM compare. Extend via the EXTRA_MODELS env var (see below).
+# All openrouter:* free entries require tool-calling support (this is a tool-using
+# deep agent) — verified against OpenRouter's catalog. Free-tier quality/availability
+# varies (gpt-oss can produce loose briefings; the big Nemotrons can be slow / 429),
+# so the GM can switch. Gemini is the default; add more via EXTRA_MODELS (below).
+# Spread across independent free providers (Google + Cerebras + OpenRouter) so a
+# quota wall on one still leaves working options — "at least one always up".
+# NOTE: Groq's free tier is intentionally absent — its per-minute token cap
+# (6-12k TPM) is below this agent's ~9-14k-token request, so every call 413s.
+# The groq: provider is still wired (build.py) for a paid/Dev-tier key via EXTRA_MODELS.
+_MODEL_LABELS = {
+    "google_genai:gemini-2.5-flash": "Gemini 2.5 Flash · Google",
+    "cerebras:zai-glm-4.7": "GLM-4.7 · Cerebras",
+    "cerebras:gpt-oss-120b": "gpt-oss-120B · Cerebras",
+    "openrouter:openai/gpt-oss-120b:free": "gpt-oss-120B · OpenRouter",
+    "openrouter:meta-llama/llama-3.3-70b-instruct:free": "Llama 3.3 70B · OpenRouter",
+    "openrouter:qwen/qwen3-next-80b-a3b-instruct:free": "Qwen3 Next 80B · OpenRouter",
+    "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free": "Nemotron 3 Ultra 550B · OpenRouter",
+    "openrouter:nvidia/nemotron-3-super-120b-a12b:free": "Nemotron 3 Super 120B · OpenRouter",
+    "openrouter:google/gemma-4-31b-it:free": "Gemma 4 31B · OpenRouter",
+    "anthropic:claude-sonnet-4-6": "Claude Sonnet 4.6 · Anthropic",
+}
+
+# Optional: append models without a code change. Comma-separated "spec|Label"
+# (or just "spec"); e.g. EXTRA_MODELS="openrouter:mistralai/...:free|Mistral · free"
+for _entry in (os.environ.get("EXTRA_MODELS") or "").split(","):
+    _entry = _entry.strip()
+    if not _entry:
+        continue
+    _spec, _, _lbl = _entry.partition("|")
+    _MODEL_LABELS.setdefault(_spec.strip(), (_lbl.strip() or _spec.strip().split(":", 1)[-1]))
 
 
-def get_agent():
-    global _agent
-    if _agent is None:
+def _key_present(spec: str) -> bool:
+    if spec.startswith("openrouter:"):
+        return bool(os.environ.get("OPENROUTER_API_KEY"))
+    if spec.startswith("groq:"):
+        return bool(os.environ.get("GROQ_API_KEY"))
+    if spec.startswith("cerebras:"):
+        return bool(os.environ.get("CEREBRAS_API_KEY"))
+    if spec.startswith("google_genai:"):
+        return bool(os.environ.get("GOOGLE_API_KEY"))
+    if spec.startswith("anthropic:"):
+        return bool(os.environ.get("ANTHROPIC_API_KEY"))
+    if spec.startswith("openai:"):
+        return bool(os.environ.get("OPENAI_API_KEY"))
+    return True  # ollama / local
+
+
+def available_models() -> list[dict]:
+    """Default model first, then any other known candidate whose key is set."""
+    specs, seen, out = [DEFAULT_MODEL, *_MODEL_LABELS], set(), []
+    for spec in specs:
+        if spec in seen or not _key_present(spec):
+            continue
+        seen.add(spec)
+        out.append({"spec": spec, "label": _MODEL_LABELS.get(spec, spec.split(":", 1)[-1])})
+    return out
+
+
+def get_agent(model: str | None = None):
+    valid = {m["spec"] for m in available_models()}
+    spec = model if model in valid else DEFAULT_MODEL
+    if spec not in _agents:
         from agent.build import build_agent
-        _agent = build_agent()
-    return _agent
+        _agents[spec] = build_agent(model=spec, checkpointer=_CHECKPOINTER, store=_STORE)
+    return _agents[spec]
+
+
+@app.get("/models")
+def models():
+    return JSONResponse({"default": DEFAULT_MODEL, "options": available_models()})
 
 
 def require_auth(creds: HTTPBasicCredentials = Depends(security)) -> str:
@@ -84,7 +163,11 @@ def _sse(event: dict) -> str:
 _SKILL_PATH = re.compile(r"skills/([^/]+)/SKILL", re.IGNORECASE)
 
 
-def _events(chunk: dict):
+def _events(chunk: dict, pending: dict):
+    """Yield SSE events for a stream chunk. `pending` carries per-tool-call start
+    times across chunks so each result reports how long that call (incl. a whole
+    subagent delegation) took."""
+    now = time.monotonic()
     for _node, update in chunk.items():
         msgs = (update or {}).get("messages", []) if isinstance(update, dict) else []
         for msg in msgs:
@@ -92,7 +175,12 @@ def _events(chunk: dict):
                 for tc in (msg.tool_calls or []):
                     name = tc["name"]
                     args = tc.get("args", {}) or {}
-                    if name in ("read_file", "ls", "glob", "grep"):
+                    if name == "task":
+                        # delegation to a subagent — credit the subagent by name,
+                        # not the generic "task" tool. Its result time == subagent time.
+                        kind = "subagent"
+                        name = args.get("subagent_type") or "segment-analyst"
+                    elif name in ("read_file", "ls", "glob", "grep"):
                         kind = "skill"
                         # surface the actual skill name (skills/<name>/SKILL.md),
                         # so the work tape credits the skill, not a generic read_file
@@ -102,10 +190,17 @@ def _events(chunk: dict):
                             name = m.group(1)
                     else:
                         kind = "tool"
+                    if tc.get("id"):
+                        pending[tc["id"]] = (name, kind, now)
                     yield {"type": kind, "name": name, "args": args}
             elif isinstance(msg, ToolMessage):
-                yield {"type": "result", "name": msg.name,
-                       "preview": str(msg.content)[:200].replace("\n", " ")}
+                label, _kind, start = pending.pop(
+                    getattr(msg, "tool_call_id", None), (msg.name, "tool", None))
+                ev = {"type": "result", "name": label,
+                      "preview": str(msg.content)[:200].replace("\n", " ")}
+                if start is not None:
+                    ev["ms"] = int((now - start) * 1000)
+                yield ev
 
 
 def _final_text(state) -> str:
@@ -117,13 +212,15 @@ def _final_text(state) -> str:
     return content
 
 
-def _stream(payload, thread: str):
+def _stream(payload, thread: str, model: str | None = None):
+    agent = get_agent(model)
     cfg = {"configurable": {"thread_id": thread}, "recursion_limit": 50}
+    pending: dict = {}
     try:
-        for chunk in get_agent().stream(payload, config=cfg, stream_mode="updates"):
-            for ev in _events(chunk):
+        for chunk in agent.stream(payload, config=cfg, stream_mode="updates"):
+            for ev in _events(chunk, pending):
                 yield _sse(ev)
-        state = get_agent().get_state(cfg)
+        state = agent.get_state(cfg)
         if state.next:
             yield _sse({"type": "interrupt", "tool": "get_as_of_otb",
                         "message": "Point-in-time rebuild needs approval."})
@@ -152,7 +249,7 @@ async def chat(request: Request, user: str = Depends(require_auth)):
               "are 'YYYY-MM'; if a month isn't specified, use the upcoming month "
               "2026-07. STLY = same month, year minus one.)\n\n")
     payload = {"messages": [{"role": "user", "content": primer + body["message"]}]}
-    return StreamingResponse(_stream(payload, thread), media_type="text/event-stream")
+    return StreamingResponse(_stream(payload, thread, body.get("model")), media_type="text/event-stream")
 
 
 @app.post("/resume")
@@ -163,7 +260,7 @@ async def resume(request: Request, user: str = Depends(require_auth)):
     approve = bool(body.get("approve"))
     decision = {"type": "approve"} if approve else {"type": "reject", "message": "Not approved by GM."}
     payload = Command(resume={"decisions": [decision]})
-    return StreamingResponse(_stream(payload, thread), media_type="text/event-stream")
+    return StreamingResponse(_stream(payload, thread, body.get("model")), media_type="text/event-stream")
 
 
 # --------------------------------------------------------------------------- #
@@ -233,7 +330,10 @@ main{flex:1;width:100%;max-width:880px;margin:auto;padding:26px 22px 30px}
  padding:3px 7px;border-radius:3px;flex:none;line-height:1.3;margin-top:1px}
 .badge.tool{background:var(--teal-tint);color:var(--teal-deep)}
 .badge.skill{background:var(--gold-tint);color:var(--gold)}
+.badge.subagent{background:var(--teal-deep);color:#fff}
 .badge.res{background:#EEEAE0;color:var(--soft)}
+.dur{font-family:var(--mono);font-size:10px;color:var(--faint);margin-left:8px;
+ letter-spacing:.03em}
 .step .body{min-width:0;flex:1}
 .step .nm{font-family:var(--mono);font-size:13px;color:var(--ink);font-weight:500}
 .step.res .nm{color:var(--soft);font-weight:400}
@@ -295,6 +395,13 @@ footer{position:sticky;bottom:0;background:linear-gradient(180deg,rgba(246,244,2
  background:var(--card);border:1px solid var(--line);border-radius:999px;
  padding:7px 14px;cursor:pointer;white-space:nowrap}
 .chips button:hover{border-color:var(--teal);color:var(--teal-deep)}
+.modelbar{display:flex;justify-content:flex-end;align-items:center;gap:7px;
+ padding:0 2px 8px;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;
+ text-transform:uppercase;color:var(--faint)}
+.modelbar select{font-family:var(--mono);font-size:11px;letter-spacing:0;
+ text-transform:none;color:var(--soft);background:var(--card);border:1px solid var(--line);
+ border-radius:7px;padding:4px 9px;cursor:pointer}
+.modelbar select:hover{border-color:var(--teal)}
 .compose{display:flex;gap:10px;background:var(--card);border:1px solid var(--line);
  border-radius:12px;padding:7px 7px 7px 16px;box-shadow:0 10px 26px -20px rgba(27,36,48,.4)}
 .compose:focus-within{border-color:var(--teal)}
@@ -318,6 +425,7 @@ footer{position:sticky;bottom:0;background:linear-gradient(180deg,rgba(246,244,2
 </main>
 
 <footer><div class=dock>
+ <div class=modelbar id=modelbar><span>Model</span><select id=model></select></div>
  <div class=chips id=chips></div>
  <div class=compose>
   <input id=q placeholder="What's driving July? Are we too dependent on OTA?" autofocus>
@@ -340,6 +448,14 @@ const SAMPLES=[
 const chips=document.getElementById('chips');
 SAMPLES.forEach(s=>{const b=document.createElement('button');b.textContent=s;
  b.onclick=()=>{document.getElementById('q').value=s;send();};chips.appendChild(b);});
+
+const modelSel=document.getElementById('model');
+fetch('/models').then(r=>r.json()).then(m=>{
+ modelSel.innerHTML=m.options.map(o=>'<option value="'+esc(o.spec)+'"'+
+  (o.spec===m.default?' selected':'')+'>'+esc(o.label)+'</option>').join('');
+ if((m.options||[]).length<2)document.getElementById('modelbar').style.display='none';
+}).catch(()=>{document.getElementById('modelbar').style.display='none';});
+function curModel(){return modelSel.value||undefined;}
 
 fetch('/health').then(r=>r.json()).then(h=>{
  const fp=(h.row_hash||h.db_fingerprint||'').slice(0,8);
@@ -367,12 +483,15 @@ function working(on){
  if(on){if(!w){w=el('div','work','<span>the desk is working</span>');turn.tape.appendChild(w);}}
  else if(w)w.remove();
 }
-function step(kind,name,args,preview){
- const cls=kind==='result'?'step res':'step';
+function fmtMs(ms){return ms>=1000?(ms/1000).toFixed(ms>=10000?0:1)+'s':ms+'ms';}
+function step(kind,name,args,preview,ms){
+ const cls=kind==='result'?'step res':kind==='subagent'?'step sub':'step';
  const badge=kind==='skill'?'<span class="badge skill">skill</span>'
+   :kind==='subagent'?'<span class="badge subagent">subagent</span>'
    :kind==='result'?'<span class="badge res">result</span>'
    :'<span class="badge tool">tool</span>';
- let body='<div class=nm>'+esc(name)+'</div>';
+ const dur=(ms!=null)?'<span class=dur>'+fmtMs(ms)+'</span>':'';
+ let body='<div class=nm>'+esc(name)+dur+'</div>';
  if(kind==='result')body+='<div class=preview>'+esc(preview)+'</div>';
  else{const a=fmtArgs(args);if(a)body+='<div class=args>'+a+'</div>';}
  const s=el('div',cls,badge+'<div class=body>'+body+'</div>');
@@ -413,8 +532,9 @@ async function stream(url,payload){
     const line=buf.slice(0,i).replace(/^data: /,'');buf=buf.slice(i+2);
     if(!line)continue;const e=JSON.parse(line);
     if(e.type==='tool')step('tool',e.name,e.args);
+    else if(e.type==='subagent')step('subagent',e.name,e.args);
     else if(e.type==='skill')step('skill',e.name,e.args);
-    else if(e.type==='result')step('result',e.name,null,e.preview);
+    else if(e.type==='result')step('result',e.name,null,e.preview,e.ms);
     else if(e.type==='interrupt')approval();
     else if(e.type==='error'){working(false);turn.root.appendChild(el('div','err','⚠ '+esc(e.message)));scroll();}
     else if(e.type==='answer')briefing(e.text);
@@ -423,8 +543,8 @@ async function stream(url,payload){
  }catch(err){working(false);if(turn)turn.root.appendChild(el('div','err','⚠ '+esc(err.message)));}
 }
 function send(){const q=document.getElementById('q');const v=q.value.trim();if(!v)return;
- newTurn(v);q.value='';stream('/chat',{message:v,thread});}
-function decide(approve){working(true);stream('/resume',{approve,thread});}
+ newTurn(v);q.value='';stream('/chat',{message:v,thread,model:curModel()});}
+function decide(approve){working(true);stream('/resume',{approve,thread,model:curModel()});}
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
 </script></body></html>"""
 
