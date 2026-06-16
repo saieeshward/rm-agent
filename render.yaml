@@ -36,6 +36,8 @@ services:
         sync: false
       - key: GROQ_API_KEY
         sync: false
+      - key: CEREBRAS_API_KEY
+        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: DATABASE_URL

@@ -53,13 +53,15 @@ DEFAULT_MODEL = os.environ.get("MODEL", "openrouter:openai/gpt-oss-120b:free")
 # deep agent) — verified against OpenRouter's catalog. Free-tier quality/availability
 # varies (gpt-oss can produce loose briefings; the big Nemotrons can be slow / 429),
 # so the GM can switch. Gemini is the default; add more via EXTRA_MODELS (below).
-# Spread across providers so a quota wall on one still leaves working options.
+# Spread across independent free providers (Google + Cerebras + OpenRouter) so a
+# quota wall on one still leaves working options — "at least one always up".
 # NOTE: Groq's free tier is intentionally absent — its per-minute token cap
 # (6-12k TPM) is below this agent's ~9-14k-token request, so every call 413s.
-# The groq: provider is still wired (build.py) for a paid/Dev-tier key via
-# EXTRA_MODELS. Viable free providers here are Google + OpenRouter (daily caps).
+# The groq: provider is still wired (build.py) for a paid/Dev-tier key via EXTRA_MODELS.
 _MODEL_LABELS = {
     "google_genai:gemini-2.5-flash": "Gemini 2.5 Flash · Google",
+    "cerebras:zai-glm-4.7": "GLM-4.7 · Cerebras",
+    "cerebras:gpt-oss-120b": "gpt-oss-120B · Cerebras",
     "openrouter:openai/gpt-oss-120b:free": "gpt-oss-120B · OpenRouter",
     "openrouter:meta-llama/llama-3.3-70b-instruct:free": "Llama 3.3 70B · OpenRouter",
     "openrouter:qwen/qwen3-next-80b-a3b-instruct:free": "Qwen3 Next 80B · OpenRouter",
@@ -84,6 +86,8 @@ def _key_present(spec: str) -> bool:
         return bool(os.environ.get("OPENROUTER_API_KEY"))
     if spec.startswith("groq:"):
         return bool(os.environ.get("GROQ_API_KEY"))
+    if spec.startswith("cerebras:"):
+        return bool(os.environ.get("CEREBRAS_API_KEY"))
     if spec.startswith("google_genai:"):
         return bool(os.environ.get("GOOGLE_API_KEY"))
     if spec.startswith("anthropic:"):
