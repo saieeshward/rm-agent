@@ -22,13 +22,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 BASE = "https://otel-hackathon-data-site.vercel.app"
 CACHE = Path(__file__).resolve().parent / ".cache"
-DETAIL_CONCURRENCY = 6
+# Parallel detail fetches. Override with DETAIL_CONCURRENCY=1 on environments where
+# Chromium's new headless mode (Playwright 1.40+) crashes under concurrent new_page
+# (seen on macOS Darwin 25.x): set it to 1 to scrape serially.
+DETAIL_CONCURRENCY = int(os.environ.get("DETAIL_CONCURRENCY", "6"))
 BLOCK = {"image", "media", "font", "stylesheet"}
 
 
@@ -127,28 +131,59 @@ async def scrape_list(page: Page) -> list[dict]:
     return rows
 
 
-async def scrape_detail(context: BrowserContext, rid: str, sem: asyncio.Semaphore) -> dict:
-    async with sem:
-        page = await context.new_page()
-        try:
-            await page.goto(f"{BASE}/reservations/{rid}", wait_until="domcontentloaded")
-            await page.wait_for_selector("dl dd", timeout=30_000)
-            return await page.evaluate(
-                """() => {
-                    const dl = document.querySelector('dl');
-                    const dts = [...dl.querySelectorAll('dt')], dds = [...dl.querySelectorAll('dd')];
-                    const fields = {};
-                    dts.forEach((dt,i)=>{ fields[dt.textContent.trim()] = dds[i] ? dds[i].textContent.trim() : null; });
-                    const tbl = document.querySelector('table');
-                    const headers = tbl ? [...tbl.querySelectorAll('thead th,thead td')].map(c=>c.textContent.trim()) : [];
-                    const stay_rows = tbl ? [...tbl.querySelectorAll('tbody tr')]
-                      .map(tr => [...tr.querySelectorAll('td,th')].map(c=>c.textContent.trim())) : [];
-                    return { reservation_id: location.pathname.split('/').pop(),
-                             fields, stay_headers: headers, stay_rows };
-                }"""
-            )
-        finally:
-            await page.close()
+async def _extract_detail(page: Page, rid: str) -> dict:
+    """Navigate `page` to one reservation detail and extract its fields + stay rows."""
+    await page.goto(f"{BASE}/reservations/{rid}", wait_until="domcontentloaded")
+    await page.wait_for_selector("dl dd", timeout=30_000)
+    return await page.evaluate(
+        """() => {
+            const dl = document.querySelector('dl');
+            const dts = [...dl.querySelectorAll('dt')], dds = [...dl.querySelectorAll('dd')];
+            const fields = {};
+            dts.forEach((dt,i)=>{ fields[dt.textContent.trim()] = dds[i] ? dds[i].textContent.trim() : null; });
+            const tbl = document.querySelector('table');
+            const headers = tbl ? [...tbl.querySelectorAll('thead th,thead td')].map(c=>c.textContent.trim()) : [];
+            const stay_rows = tbl ? [...tbl.querySelectorAll('tbody tr')]
+              .map(tr => [...tr.querySelectorAll('td,th')].map(c=>c.textContent.trim())) : [];
+            return { reservation_id: location.pathname.split('/').pop(),
+                     fields, stay_headers: headers, stay_rows };
+        }"""
+    )
+
+
+async def scrape_details(context: BrowserContext, ids: list[str], workers: int) -> list[dict]:
+    """
+    Fetch every detail page with a fixed pool of `workers` REUSED pages.
+
+    Pages are opened ONE AT A TIME up front (never two new_page() calls in flight)
+    and each is reused for many reservations, so the context sees only `workers`
+    page creations total and never a concurrent burst. Newer headless Chromium on
+    macOS Darwin 25.x crashes on concurrent / high-volume page creation; this pattern
+    sidesteps both. The caller keeps the list page open as a keepalive so the context
+    is never at zero pages. Results come back in the original `ids` order.
+    """
+    queue: asyncio.Queue = asyncio.Queue()
+    for idx, rid in enumerate(ids):
+        queue.put_nowait((idx, rid))
+    results: list = [None] * len(ids)
+
+    async def worker(page: Page) -> None:
+        while True:
+            try:
+                idx, rid = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            results[idx] = await _extract_detail(page, rid)
+
+    # Sequential creation: the list comprehension awaits each new_page() before the
+    # next, so two are never created at once.
+    pages = [await context.new_page() for _ in range(max(1, min(workers, len(ids))))]
+    try:
+        await asyncio.gather(*[worker(p) for p in pages])
+    finally:
+        for p in pages:
+            await p.close()
+    return results
 
 
 async def main() -> None:
@@ -172,12 +207,13 @@ async def main() -> None:
         ids = [r["reservation_id"] for r in listing if r["reservation_id"]]
         print(f"  collected {len(ids)} reservation ids across list pages")
 
+        # Keep the list page open through the detail phase: new headless Chromium can
+        # quit when its last page closes, which would kill the context before the
+        # worker pages open. Close it only after the details are gathered.
+        print(f"scraping {len(ids)} detail pages ({DETAIL_CONCURRENCY} reused workers) ...")
+        details = await scrape_details(context, ids, DETAIL_CONCURRENCY)
+
         await page.close()
-
-        print(f"scraping {len(ids)} detail pages (concurrency={DETAIL_CONCURRENCY}) ...")
-        sem = asyncio.Semaphore(DETAIL_CONCURRENCY)
-        details = await asyncio.gather(*[scrape_detail(context, rid, sem) for rid in ids])
-
         await browser.close()
 
     snapshot = {

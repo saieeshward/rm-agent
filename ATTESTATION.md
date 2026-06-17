@@ -5,7 +5,7 @@
 - Name: Sai Eeshwar Divaakar
 - Repository URL: https://github.com/saieeshward/rm-agent
 - Live URL: https://otel-rm-agent.onrender.com  (basic auth; credentials shared via the private submission intake)
-- Date: 2026-06-16
+- Date: 2026-06-17
 
 ---
 
@@ -69,7 +69,7 @@ How many reservations does the data site show per list page?
 
 How will you prove you did not miss the last list page during ETL?
 
-> I read `total_reservations` off `/verify` first, then keep paging until the page indicator reaches the last page. After that I check the distinct `reservation_id` count against both `/verify` and `SCRAPE_MANIFEST.reservation_ids_count`, confirm `reservation_ids_sha256` (sha of the sorted ids) matches the DB, and confirm the load's `reservation_stay_status_sha256` matches `/verify`. It does (`3388ad54…`).
+> I read `total_reservations` off `/verify` first, then keep paging until the page indicator reaches the last page. After that I check the distinct `reservation_id` count against both `/verify` and `SCRAPE_MANIFEST.reservation_ids_count`, confirm `reservation_ids_sha256` (sha of the sorted ids) matches the DB, and confirm the load's `reservation_stay_status_sha256` matches `/verify`. It does (`e6b0c1e3…`).
 
 ### 11. Tool grain
 
@@ -96,4 +96,4 @@ Name one revenue-manager question that should load a **skill** but call **`get_s
 Describe pagination strategy + idempotency approach + **anchor date** you will
 scrape against (must match `/verify` on load day).
 
-> Playwright (headless Chromium, assets blocked) walks the client-rendered list 100 at a time and opens each `/reservations/<id>` detail for the `<dl>` fields plus the per-night stay-rows table, run concurrently. The load is idempotent: a single transaction that truncates and reloads (lookups first, then facts, with the rate_plan FK relaxed per Option D) and writes a `load_manifest` row on every run. Anchor date is 2026-06-16 (`dataset_revision 2026.06.12.2`), reconciled against `/verify`. I'll re-scrape and re-check on the actual submit day.
+> Playwright (headless Chromium, assets blocked) walks the client-rendered list 100 at a time and opens each `/reservations/<id>` detail for the `<dl>` fields plus the per-night stay-rows table, run concurrently. The load is idempotent: a single transaction that truncates and reloads (lookups first, then facts, with the rate_plan FK relaxed per Option D) and writes a `load_manifest` row on every run. Anchor date is 2026-06-17 (`dataset_revision 2026.06.12.2`), reconciled against `/verify` on submit day. I re-scraped and re-reconciled on the submit day (2026-06-17): the live `/verify` anchor had rolled forward from 2026-06-16, so the snapshot, `SCRAPE_MANIFEST.json`, `LOAD_PROOF.json` and the hosted DB were all refreshed to the 2026-06-17 anchor.
