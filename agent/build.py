@@ -45,6 +45,16 @@ SKILL_SOURCES = ["skills"]
 
 DEFAULT_MODEL = "anthropic:claude-opus-4-8"
 
+# The segment subagent runs on a DIFFERENT model family so its calls draw from a
+# separate rate-limit bucket. Anthropic meters Opus (4.6/4.7/4.8), Sonnet, and Haiku
+# in independent ITPM pools, so delegating segment work to Haiku means it no longer
+# consumes the main Opus 30k-ITPM Tier-1 budget — the fix for Tier-1 429s on heavy
+# (subagent-delegating) questions when you can't tier up. Override via SUBAGENT_MODEL
+# (e.g. anthropic:claude-sonnet-4-6 for more subagent quality, or the main model to
+# disable the split). The segment tools do the arithmetic, so Haiku's lighter
+# reasoning is low-risk here.
+SUBAGENT_MODEL = os.environ.get("SUBAGENT_MODEL", "anthropic:claude-haiku-4-5")
+
 # The filesystem backend exists only so the skills middleware can READ SKILL.md
 # files. The agent has no business writing to the repo, so deny every write — this
 # stops a weak model from "editing" a skill mid-answer (observed with gpt-4o-mini).
@@ -147,11 +157,17 @@ def build_agent(model=None, checkpointer=None, store=None):
            defaults to env MODEL or DEFAULT_MODEL. checkpointer/store default to
            in-memory implementations (swap for Postgres/Redis in deployment).
     """
+    # Put the segment subagent on its own model family (separate rate-limit bucket).
+    # Tests pass a model INSTANCE (a fake) — in that case let the subagent inherit it
+    # so no API key is needed; only split on the real string/env path (production).
+    subagent = dict(SEGMENT_SUBAGENT)
+    if model is None or isinstance(model, str):
+        subagent["model"] = resolve_model(SUBAGENT_MODEL)
     return create_deep_agent(
         model=resolve_model(model),
         tools=MAIN_TOOLS,
         system_prompt=MAIN_SYSTEM_PROMPT,
-        subagents=[SEGMENT_SUBAGENT],
+        subagents=[subagent],
         skills=SKILL_SOURCES,
         backend=FilesystemBackend(root_dir=str(ROOT), virtual_mode=True),
         permissions=READ_ONLY_FS,
