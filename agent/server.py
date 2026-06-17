@@ -63,6 +63,21 @@ def get_agent(spec: str = PRIMARY_MODEL):
     return _agents[spec]
 
 
+# Manual model switch (speed comparison): an option is offered to the UI only if its
+# provider key is set. Picking one pins the turn to that single model (no fallback),
+# so the measured time is that model's alone. "Auto" (no pick) uses MODEL_CHAIN.
+_MODEL_OPTIONS = [
+    ("cerebras:gpt-oss-120b",               "Cerebras gpt-oss-120b",   "CEREBRAS_API_KEY"),
+    ("openrouter:openai/gpt-oss-120b:free", "OpenRouter gpt-oss-120b",  "OPENROUTER_API_KEY"),
+    ("anthropic:claude-haiku-4-5",          "Claude Haiku 4.5",         "ANTHROPIC_API_KEY"),
+    ("anthropic:claude-opus-4-8",           "Claude Opus 4.8",          "ANTHROPIC_API_KEY"),
+]
+
+
+def _available_models() -> list[dict]:
+    return [{"spec": s, "label": l} for s, l, env in _MODEL_OPTIONS if os.environ.get(env)]
+
+
 def require_auth(creds: HTTPBasicCredentials = Depends(security)) -> str:
     ok = secrets.compare_digest(creds.username, USER) and secrets.compare_digest(creds.password, PASSWORD)
     if not ok:
@@ -182,7 +197,8 @@ def _rate_limit_message(exc) -> str | None:
     return f"Hit {which} (account tier cap).{tail}"
 
 
-def _stream(payload, thread: str):
+def _stream(payload, thread: str, chain: list[str] | None = None):
+    chain = chain or MODEL_CHAIN
     cfg = {"configurable": {"thread_id": thread}, "recursion_limit": 50}
     # Try each model in MODEL_CHAIN. We only fail over to the next model if the
     # current one errors BEFORE emitting any work-tape event — the observed failure
@@ -190,8 +206,8 @@ def _stream(payload, thread: str):
     # tape clean and never duplicated. A mid-turn error after work has streamed is
     # surfaced as-is. The checkpointer is shared, so a fresh attempt resumes from the
     # last committed turn (a failed model call commits nothing).
-    last = len(MODEL_CHAIN) - 1
-    for idx, spec in enumerate(MODEL_CHAIN):
+    last = len(chain) - 1
+    for idx, spec in enumerate(chain):
         agent = get_agent(spec)
         pending: dict = {}
         emitted = False
@@ -250,7 +266,16 @@ async def chat(request: Request, user: str = Depends(require_auth)):
     # the live DB so it tracks whatever was last loaded and never goes stale in code.
     primer = _anchor_primer()
     payload = {"messages": [{"role": "user", "content": primer + body["message"]}]}
-    return StreamingResponse(_stream(payload, thread), media_type="text/event-stream")
+    # Optional manual model pick (speed comparison): pin to that single model if it's
+    # an offered option; otherwise fall back to the default MODEL_CHAIN.
+    picked = body.get("model")
+    chain = [picked] if picked in {o["spec"] for o in _available_models()} else None
+    return StreamingResponse(_stream(payload, thread, chain), media_type="text/event-stream")
+
+
+@app.get("/models")
+def models(user: str = Depends(require_auth)):
+    return JSONResponse({"models": _available_models()})
 
 
 @app.post("/resume")
@@ -403,6 +428,9 @@ footer{position:sticky;bottom:0;background:linear-gradient(180deg,rgba(246,244,2
  font-size:15.5px;color:var(--ink)}
 #q::placeholder{color:var(--faint)}
 .compose .btn.go{padding:10px 22px}
+.compose select{align-self:center;border:0;outline:0;background:transparent;cursor:pointer;
+ font-family:var(--sans);font-size:12.5px;color:var(--soft);max-width:165px}
+.meta{font-family:var(--sans);font-size:12px;color:var(--faint);margin:8px 0 0 2px}
 @media(max-width:560px){.brand .sub{display:none}.mast{padding:13px 16px}
  main{padding:20px 16px}.dock{padding:6px 16px 16px}}
 </style></head>
@@ -422,6 +450,7 @@ footer{position:sticky;bottom:0;background:linear-gradient(180deg,rgba(246,244,2
  <div class=chips id=chips></div>
  <div class=compose>
   <input id=q placeholder="What's driving July? Are we too dependent on OTA?" autofocus>
+  <select id=model title="Model (Auto = fallback chain)"><option value="">Auto</option></select>
   <button class="btn go" onclick=send()>Ask</button>
  </div>
 </div></footer>
@@ -450,6 +479,12 @@ fetch('/health').then(r=>r.json()).then(h=>{
   (h.financial_status_posted_only_rows||0)+' posted rows · fp '+fp+'</span>';
 }).catch(()=>{});
 
+fetch('/models').then(r=>r.json()).then(d=>{
+ const sel=document.getElementById('model');
+ (d.models||[]).forEach(m=>{const o=document.createElement('option');
+  o.value=m.spec;o.textContent=m.label;sel.appendChild(o);});
+}).catch(()=>{});
+
 function el(tag,cls,html){const d=document.createElement(tag);if(cls)d.className=cls;
  if(html!=null)d.innerHTML=html;return d;}
 function esc(s){return (s==null?'':String(s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
@@ -462,7 +497,7 @@ function newTurn(q){
  t.appendChild(el('div','ask','<div class=eyebrow>You asked</div><div class=q>'+esc(q)+'</div>'));
  const tape=el('div','tape');tape.appendChild(el('div','eyebrow','&nbsp;Work tape'));
  t.appendChild(tape);log.appendChild(t);
- turn={root:t,tape:tape};working(true);scroll();
+ turn={root:t,tape:tape,t0:performance.now(),model:'Auto'};working(true);scroll();
 }
 function working(on){
  if(!turn)return;let w=turn.tape.querySelector('.work');
@@ -489,7 +524,10 @@ function briefing(text){
  working(false);
  const c=el('div','briefing','<div class=lbl><span class=eyebrow>Briefing</span></div>'+
   '<div class=doc>'+marked.parse(text||'')+'</div>');
- turn.root.appendChild(c);scroll();
+ turn.root.appendChild(c);
+ if(turn.t0){const secs=((performance.now()-turn.t0)/1000).toFixed(1);
+  turn.root.appendChild(el('div','meta','responded in '+secs+'s · '+esc(turn.model||'Auto')));}
+ scroll();
 }
 function approval(){
  working(false);
@@ -530,7 +568,9 @@ async function stream(url,payload){
  }catch(err){working(false);if(turn)turn.root.appendChild(el('div','err','⚠ '+esc(err.message)));}
 }
 function send(){const q=document.getElementById('q');const v=q.value.trim();if(!v)return;
- newTurn(v);q.value='';stream('/chat',{message:v,thread});}
+ const sel=document.getElementById('model');const model=sel?sel.value:'';
+ newTurn(v);turn.model=(model&&sel)?sel.options[sel.selectedIndex].text:'Auto';
+ q.value='';stream('/chat',{message:v,thread,model:model||undefined});}
 function decide(approve){working(true);stream('/resume',{approve,thread});}
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
 </script></body></html>"""
