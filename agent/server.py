@@ -42,18 +42,25 @@ _CHECKPOINTER = MemorySaver()
 _STORE = InMemoryStore()
 _agents: dict[str, object] = {}
 
-# Single model, no in-app picker: the desk runs one best model (Claude Opus 4.8).
-# Override only via the MODEL env var at deploy time (e.g. openai:gpt-5.4 once that
-# account is funded) — see resolve_model() in build.py for the supported providers.
-DEFAULT_MODEL = os.environ.get("MODEL", "anthropic:claude-opus-4-8")
+# Model chain: the desk tries the primary model first, then each fallback in order
+# if a model errors *before producing any output* (rate limit, provider outage, bad
+# key). Fastest first (Cerebras gpt-oss-120b), free fallback second (OpenRouter
+# gpt-oss-120b). Override at deploy time via MODEL (primary) and MODEL_FALLBACKS
+# (comma-separated). Each spec is "provider:name" — see resolve_model() in build.py.
+PRIMARY_MODEL = os.environ.get("MODEL", "cerebras:gpt-oss-120b")
+FALLBACK_MODELS = [s.strip() for s in
+                   os.environ.get("MODEL_FALLBACKS", "openrouter:openai/gpt-oss-120b:free").split(",")
+                   if s.strip()]
+# de-dupe while preserving order; primary always first
+MODEL_CHAIN = list(dict.fromkeys([PRIMARY_MODEL, *FALLBACK_MODELS]))
 
 
-def get_agent():
-    """Build (once, cached) and return the single configured agent."""
-    if DEFAULT_MODEL not in _agents:
+def get_agent(spec: str = PRIMARY_MODEL):
+    """Build (once, cached) and return the agent for a given model spec."""
+    if spec not in _agents:
         from agent.build import build_agent
-        _agents[DEFAULT_MODEL] = build_agent(model=DEFAULT_MODEL, checkpointer=_CHECKPOINTER, store=_STORE)
-    return _agents[DEFAULT_MODEL]
+        _agents[spec] = build_agent(model=spec, checkpointer=_CHECKPOINTER, store=_STORE)
+    return _agents[spec]
 
 
 def require_auth(creds: HTTPBasicCredentials = Depends(security)) -> str:
@@ -176,26 +183,42 @@ def _rate_limit_message(exc) -> str | None:
 
 
 def _stream(payload, thread: str):
-    agent = get_agent()
     cfg = {"configurable": {"thread_id": thread}, "recursion_limit": 50}
-    pending: dict = {}
-    try:
-        for chunk in agent.stream(payload, config=cfg, stream_mode="updates"):
-            for ev in _events(chunk, pending):
-                yield _sse(ev)
-        state = agent.get_state(cfg)
-        if state.next:
-            yield _sse({"type": "interrupt", "tool": "get_as_of_otb",
-                        "message": "Point-in-time rebuild needs approval."})
-        else:
-            yield _sse({"type": "answer", "text": _final_text(state)})
-    except Exception as exc:  # surface model/rate-limit errors instead of hanging
-        msg = _rate_limit_message(exc) or str(exc)
-        if "'messages'" in msg or msg.strip() in ("", "None"):
-            # the provider returned a malformed/error payload (seen under concurrent
-            # bursts on gpt-4o-mini) instead of a completion — present it cleanly.
-            msg = "The model returned an unexpected response (likely a transient rate-limit). Please retry."
-        yield _sse({"type": "error", "message": msg[:400]})
+    # Try each model in MODEL_CHAIN. We only fail over to the next model if the
+    # current one errors BEFORE emitting any work-tape event — the observed failure
+    # (rate limit on the first model call) happens there, so this keeps the visible
+    # tape clean and never duplicated. A mid-turn error after work has streamed is
+    # surfaced as-is. The checkpointer is shared, so a fresh attempt resumes from the
+    # last committed turn (a failed model call commits nothing).
+    last = len(MODEL_CHAIN) - 1
+    for idx, spec in enumerate(MODEL_CHAIN):
+        agent = get_agent(spec)
+        pending: dict = {}
+        emitted = False
+        try:
+            if idx > 0:
+                yield _sse({"type": "notice",
+                            "message": f"Primary model unavailable — switched to fallback ({spec})."})
+            for chunk in agent.stream(payload, config=cfg, stream_mode="updates"):
+                for ev in _events(chunk, pending):
+                    emitted = True
+                    yield _sse(ev)
+            state = agent.get_state(cfg)
+            if state.next:
+                yield _sse({"type": "interrupt", "tool": "get_as_of_otb",
+                            "message": "Point-in-time rebuild needs approval."})
+            else:
+                yield _sse({"type": "answer", "text": _final_text(state)})
+            break  # this model produced a result — done
+        except Exception as exc:  # surface model/rate-limit errors instead of hanging
+            if idx < last and not emitted:
+                continue  # nothing shown yet — quietly try the next model
+            msg = _rate_limit_message(exc) or str(exc)
+            if "'messages'" in msg or msg.strip() in ("", "None"):
+                # provider returned a malformed/error payload instead of a completion.
+                msg = "The model returned an unexpected response (likely a transient rate-limit). Please retry."
+            yield _sse({"type": "error", "message": msg[:400]})
+            break
     yield _sse({"type": "done"})
 
 
@@ -498,6 +521,7 @@ async function stream(url,payload){
     else if(e.type==='subagent')step('subagent',e.name,e.args);
     else if(e.type==='skill')step('skill',e.name,e.args);
     else if(e.type==='result')step('result',e.name,null,e.preview,e.ms);
+    else if(e.type==='notice'){turn.tape.appendChild(el('div','eyebrow','&nbsp;↪ '+esc(e.message)));scroll();}
     else if(e.type==='interrupt')approval();
     else if(e.type==='error'){working(false);turn.root.appendChild(el('div','err','⚠ '+esc(e.message)));scroll();}
     else if(e.type==='answer')briefing(e.text);

@@ -25,11 +25,15 @@ services:
     healthCheckPath: /health   # unauthenticated; returns the DB fingerprint fields
     autoDeploy: true      # redeploy on push to the default branch
     envVars:
-      # The one model the desk runs — Claude Opus 4.8 (reliable tool-calling, no
-      # free-tier 429/retry stalls). There is no in-app picker; set ANTHROPIC_API_KEY
-      # below. To run a different model, change this value (e.g. openai:gpt-5.4).
+      # Model chain: the desk tries MODEL first, then each MODEL_FALLBACKS entry (in
+      # order) if a model errors before producing output. Cerebras gpt-oss-120b (fast)
+      # primary; OpenRouter gpt-oss-120b (free) fallback. Set the matching provider
+      # key(s) below (CEREBRAS_API_KEY / OPENROUTER_API_KEY). To run Claude instead,
+      # set MODEL=anthropic:claude-opus-4-8 and provide a funded ANTHROPIC_API_KEY.
       - key: MODEL
-        value: anthropic:claude-opus-4-8
+        value: cerebras:gpt-oss-120b
+      - key: MODEL_FALLBACKS
+        value: openrouter:openai/gpt-oss-120b:free
       - key: OPENROUTER_API_KEY
         sync: false
       # Optional extra model providers — set the key to make that model appear in

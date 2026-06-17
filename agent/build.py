@@ -45,15 +45,20 @@ SKILL_SOURCES = ["skills"]
 
 DEFAULT_MODEL = "anthropic:claude-opus-4-8"
 
-# The segment subagent runs on a DIFFERENT model family so its calls draw from a
-# separate rate-limit bucket. Anthropic meters Opus (4.6/4.7/4.8), Sonnet, and Haiku
-# in independent ITPM pools, so delegating segment work to Haiku means it no longer
-# consumes the main Opus 30k-ITPM Tier-1 budget — the fix for Tier-1 429s on heavy
-# (subagent-delegating) questions when you can't tier up. Override via SUBAGENT_MODEL
-# (e.g. anthropic:claude-sonnet-4-6 for more subagent quality, or the main model to
-# disable the split). The segment tools do the arithmetic, so Haiku's lighter
-# reasoning is low-risk here.
-SUBAGENT_MODEL = os.environ.get("SUBAGENT_MODEL", "anthropic:claude-haiku-4-5")
+# Subagent model: SUBAGENT_MODEL env wins if set. Otherwise the default depends on
+# the MAIN model's provider (see _subagent_spec). Putting the subagent on Haiku is
+# only worth it when the main model is Anthropic — Anthropic meters Opus/Sonnet/Haiku
+# in independent ITPM pools, so Haiku's segment calls draw from a separate bucket. On
+# any OTHER provider we keep the subagent on the SAME model as main, so a problem with
+# the Anthropic account can't break the subagent once the desk has moved off Anthropic.
+SUBAGENT_MODEL = os.environ.get("SUBAGENT_MODEL")  # explicit override; else auto (below)
+
+
+def _subagent_spec(main_spec: str) -> str:
+    """Pick the segment subagent's model spec given the main model's spec."""
+    if SUBAGENT_MODEL:
+        return SUBAGENT_MODEL
+    return "anthropic:claude-haiku-4-5" if main_spec.startswith("anthropic:") else main_spec
 
 # The filesystem backend exists only so the skills middleware can READ SKILL.md
 # files. The agent has no business writing to the repo, so deny every write — this
@@ -169,7 +174,8 @@ def build_agent(model=None, checkpointer=None, store=None):
     # so no API key is needed; only split on the real string/env path (production).
     subagent = dict(SEGMENT_SUBAGENT)
     if model is None or isinstance(model, str):
-        subagent["model"] = resolve_model(SUBAGENT_MODEL)
+        main_spec = model or os.environ.get("MODEL", DEFAULT_MODEL)
+        subagent["model"] = resolve_model(_subagent_spec(main_spec))
     return create_deep_agent(
         model=resolve_model(model),
         tools=MAIN_TOOLS,
