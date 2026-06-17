@@ -146,6 +146,35 @@ def _final_text(state) -> str:
     return content
 
 
+def _rate_limit_message(exc) -> str | None:
+    """If exc is a 429, return a message naming the exhausted dimension + retry-after.
+
+    Anthropic's RateLimitError carries the per-dimension breakdown in response headers
+    (`anthropic-ratelimit-{input-tokens,output-tokens,requests}-remaining`); whichever
+    reads "0" is the limiter that actually fired. Returns None for non-429 errors.
+    langchain may wrap the SDK error, so we also look down the cause/context chain.
+    """
+    resp = None
+    for e in (exc, getattr(exc, "__cause__", None), getattr(exc, "__context__", None)):
+        resp = getattr(e, "response", None)
+        if resp is not None:
+            break
+    headers = dict(getattr(resp, "headers", None) or {})
+    status = getattr(resp, "status_code", None)
+    s = str(exc).lower()
+    if not (status == 429 or "429" in s or "rate_limit" in s or "resource_exhausted" in s):
+        return None
+    dims = [("input-tokens", "input tokens/min (ITPM)"),
+            ("output-tokens", "output tokens/min (OTPM)"),
+            ("requests", "requests/min (RPM)")]
+    hit = [label for key, label in dims
+           if headers.get(f"anthropic-ratelimit-{key}-remaining") == "0"]
+    which = " + ".join(hit) if hit else "model rate limit"
+    retry = headers.get("retry-after")
+    tail = f" Auto-retry in ~{retry}s." if retry else " Retrying shortly."
+    return f"Hit {which} (account tier cap).{tail}"
+
+
 def _stream(payload, thread: str):
     agent = get_agent()
     cfg = {"configurable": {"thread_id": thread}, "recursion_limit": 50}
@@ -161,11 +190,8 @@ def _stream(payload, thread: str):
         else:
             yield _sse({"type": "answer", "text": _final_text(state)})
     except Exception as exc:  # surface model/rate-limit errors instead of hanging
-        msg = str(exc)
-        low = msg.lower()
-        if "resource_exhausted" in low or "429" in msg or "rate" in low:
-            msg = "Model rate limit / quota exceeded — retry shortly or use a model with more capacity."
-        elif "'messages'" in msg or msg.strip() in ("", "None"):
+        msg = _rate_limit_message(exc) or str(exc)
+        if "'messages'" in msg or msg.strip() in ("", "None"):
             # the provider returned a malformed/error payload (seen under concurrent
             # bursts on gpt-4o-mini) instead of a completion — present it cleanly.
             msg = "The model returned an unexpected response (likely a transient rate-limit). Please retry."

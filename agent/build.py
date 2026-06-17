@@ -110,16 +110,23 @@ def resolve_model(model=None):
             timeout=60,
         )
     if spec.startswith("anthropic:"):
-        # A new account sits at Tier 1 (Opus: 50 RPM / 30k input-tokens-per-minute).
-        # One analytical question fires several tool-call rounds (main + subagent),
-        # together exceeding 30k ITPM in a single minute -> 429. The per-minute
-        # budget resets each minute, so retry with backoff (honoring retry-after)
-        # rides out the reset and lets the turn complete instead of erroring out.
+        # Tier-1 limits are per-model-class: Opus 4.x = 50 RPM / 500k ITPM / 80k OTPM;
+        # Haiku 4.5 (the subagent's separate bucket) = 50 RPM / 50k ITPM. (NB: the old
+        # "Opus 30k ITPM" note here was the *Sonnet* number — Opus is 16x higher.)
+        # A deep-agent question fires several tool rounds, each re-sending the whole
+        # growing prefix (system + skills + tool defs + history). cache_control turns on
+        # Anthropic prompt caching: that stable prefix is written once, then read on
+        # every later round at ~0.1x cost AND — crucially — cache-read tokens do NOT
+        # count toward ITPM on Opus / Haiku 4.x (no "†" in the rate-limit table), so the
+        # burst stops stacking against the per-minute cap. {"type":"ephemeral"} as a
+        # top-level kwarg auto-places the breakpoint on the last cacheable block (caches
+        # tools+system+history as a prefix). max_retries rides out any residual 429.
         from langchain_anthropic import ChatAnthropic
         return ChatAnthropic(
             model=spec.split(":", 1)[1],
             timeout=120,
             max_retries=8,
+            model_kwargs={"cache_control": {"type": "ephemeral"}},
         )
     return spec
 
