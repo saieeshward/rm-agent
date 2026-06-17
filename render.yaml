@@ -6,12 +6,13 @@
 #
 #   1. Push this file to the public repo (github.com/saieeshward/rm-agent).
 #   2. Render dashboard -> New -> Blueprint -> pick the repo -> Apply.
-#   3. Fill the five secret env vars when prompted (sync:false -> not stored in git):
-#        MODEL=openrouter:openai/gpt-oss-120b:free
-#        OPENROUTER_API_KEY=sk-or-...
+#   3. Fill the secret env vars when prompted (sync:false -> not stored in git):
+#        ANTHROPIC_API_KEY=sk-ant-...   (the only model key you need)
 #        DATABASE_URL=postgresql://...neon.tech/...?sslmode=require
 #        BASIC_AUTH_USER=gm
 #        BASIC_AUTH_PASS=<pick one>
+#      Only ANTHROPIC_API_KEY is needed for the default model; the other provider
+#      keys are optional (only used if you point MODEL at that provider).
 #
 # The Dockerfile already binds uvicorn to $PORT, which Render injects.
 services:
@@ -24,10 +25,11 @@ services:
     healthCheckPath: /health   # unauthenticated; returns the DB fingerprint fields
     autoDeploy: true      # redeploy on push to the default branch
     envVars:
-      # Default model (pre-selected in the UI; the in-app dropdown can switch per
-      # question). Committed here so it's blueprint-managed — no dashboard editing.
+      # The one model the desk runs — Claude Opus 4.8 (reliable tool-calling, no
+      # free-tier 429/retry stalls). There is no in-app picker; set ANTHROPIC_API_KEY
+      # below. To run a different model, change this value (e.g. openai:gpt-5.4).
       - key: MODEL
-        value: google_genai:gemini-2.5-flash
+        value: anthropic:claude-opus-4-8
       - key: OPENROUTER_API_KEY
         sync: false
       # Optional extra model providers — set the key to make that model appear in
@@ -39,6 +41,8 @@ services:
       - key: CEREBRAS_API_KEY
         sync: false
       - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
         sync: false
       - key: DATABASE_URL
         sync: false

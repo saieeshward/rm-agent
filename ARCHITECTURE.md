@@ -46,7 +46,7 @@ tool and typed args, and the correctness sits in tested code.
 | Planning | built-in `write_todos` |
 | Memory | `MemorySaver` checkpointer (multi-turn) + `InMemoryStore` |
 | HITL | `interrupt_on={"get_as_of_otb": True}` (expensive point-in-time rebuild) |
-| Model | env `MODEL` (`resolve_model`): anthropic / google_genai / openrouter / groq / cerebras / ollama; the UI also switches model per turn (`/models`) |
+| Model | Claude Opus 4.8 (single model, no in-app picker); override at deploy via env `MODEL` (`resolve_model`): anthropic / openai / google_genai / openrouter / groq / cerebras / ollama |
 
 ## 5. Skill → tool routing matrix
 | Skill | Primary tool(s) | Judgment? |
@@ -76,9 +76,9 @@ tool and typed args, and the correctness sits in tested code.
   behind HTTP basic auth.
 - `GET /health` (no auth, no model) returns `db_fingerprint`, `dataset_revision`, `row_hash` and
   `financial_status_posted_only_rows` from the live DB, matching `LOAD_PROOF`.
-- `GET /models` plus an in-app switcher lets you pick the model per turn across separate free
-  providers (Google, Cerebras, OpenRouter), so one provider's quota wall isn't fatal. Keys come from
-  env/`.env` and are never committed.
+- The desk runs a single model — Claude Opus 4.8 — chosen for reliable tool-calling. Change it at
+  deploy time with the `MODEL` env var (`resolve_model` supports anthropic / openai / google_genai /
+  openrouter / groq / cerebras / ollama). Keys come from env/`.env` and are never committed.
 
 ## 8. Decisions / out of scope
 - I kept 7 tools (5 required + 2 extras); "exactly five" reads to me as a floor plus the no-raw-SQL rule.

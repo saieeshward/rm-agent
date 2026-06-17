@@ -42,84 +42,18 @@ _CHECKPOINTER = MemorySaver()
 _STORE = InMemoryStore()
 _agents: dict[str, object] = {}
 
-DEFAULT_MODEL = os.environ.get("MODEL", "openrouter:openai/gpt-oss-120b:free")
-
-# Models the UI may offer, with friendly labels. Only those whose API key is
-# actually configured are shown — so the picker never lists an option that 500s.
-# All openrouter:* free entries require tool-calling support (this is a tool-using
-# deep agent) — verified against OpenRouter's catalog. Free-tier quality varies;
-# the switcher lets the GM compare. Extend via the EXTRA_MODELS env var (see below).
-# All openrouter:* free entries require tool-calling support (this is a tool-using
-# deep agent) — verified against OpenRouter's catalog. Free-tier quality/availability
-# varies (gpt-oss can produce loose briefings; the big Nemotrons can be slow / 429),
-# so the GM can switch. Gemini is the default; add more via EXTRA_MODELS (below).
-# Spread across independent free providers (Google + Cerebras + OpenRouter) so a
-# quota wall on one still leaves working options — "at least one always up".
-# NOTE: Groq's free tier is intentionally absent — its per-minute token cap
-# (6-12k TPM) is below this agent's ~9-14k-token request, so every call 413s.
-# The groq: provider is still wired (build.py) for a paid/Dev-tier key via EXTRA_MODELS.
-_MODEL_LABELS = {
-    "google_genai:gemini-2.5-flash": "Gemini 2.5 Flash · Google",
-    "cerebras:zai-glm-4.7": "GLM-4.7 · Cerebras",
-    "cerebras:gpt-oss-120b": "gpt-oss-120B · Cerebras",
-    "openrouter:openai/gpt-oss-120b:free": "gpt-oss-120B · OpenRouter",
-    "openrouter:meta-llama/llama-3.3-70b-instruct:free": "Llama 3.3 70B · OpenRouter",
-    "openrouter:qwen/qwen3-next-80b-a3b-instruct:free": "Qwen3 Next 80B · OpenRouter",
-    "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free": "Nemotron 3 Ultra 550B · OpenRouter",
-    "openrouter:nvidia/nemotron-3-super-120b-a12b:free": "Nemotron 3 Super 120B · OpenRouter",
-    "openrouter:google/gemma-4-31b-it:free": "Gemma 4 31B · OpenRouter",
-    "anthropic:claude-sonnet-4-6": "Claude Sonnet 4.6 · Anthropic",
-}
-
-# Optional: append models without a code change. Comma-separated "spec|Label"
-# (or just "spec"); e.g. EXTRA_MODELS="openrouter:mistralai/...:free|Mistral · free"
-for _entry in (os.environ.get("EXTRA_MODELS") or "").split(","):
-    _entry = _entry.strip()
-    if not _entry:
-        continue
-    _spec, _, _lbl = _entry.partition("|")
-    _MODEL_LABELS.setdefault(_spec.strip(), (_lbl.strip() or _spec.strip().split(":", 1)[-1]))
+# Single model, no in-app picker: the desk runs one best model (Claude Opus 4.8).
+# Override only via the MODEL env var at deploy time (e.g. openai:gpt-5.4 once that
+# account is funded) — see resolve_model() in build.py for the supported providers.
+DEFAULT_MODEL = os.environ.get("MODEL", "anthropic:claude-opus-4-8")
 
 
-def _key_present(spec: str) -> bool:
-    if spec.startswith("openrouter:"):
-        return bool(os.environ.get("OPENROUTER_API_KEY"))
-    if spec.startswith("groq:"):
-        return bool(os.environ.get("GROQ_API_KEY"))
-    if spec.startswith("cerebras:"):
-        return bool(os.environ.get("CEREBRAS_API_KEY"))
-    if spec.startswith("google_genai:"):
-        return bool(os.environ.get("GOOGLE_API_KEY"))
-    if spec.startswith("anthropic:"):
-        return bool(os.environ.get("ANTHROPIC_API_KEY"))
-    if spec.startswith("openai:"):
-        return bool(os.environ.get("OPENAI_API_KEY"))
-    return True  # ollama / local
-
-
-def available_models() -> list[dict]:
-    """Default model first, then any other known candidate whose key is set."""
-    specs, seen, out = [DEFAULT_MODEL, *_MODEL_LABELS], set(), []
-    for spec in specs:
-        if spec in seen or not _key_present(spec):
-            continue
-        seen.add(spec)
-        out.append({"spec": spec, "label": _MODEL_LABELS.get(spec, spec.split(":", 1)[-1])})
-    return out
-
-
-def get_agent(model: str | None = None):
-    valid = {m["spec"] for m in available_models()}
-    spec = model if model in valid else DEFAULT_MODEL
-    if spec not in _agents:
+def get_agent():
+    """Build (once, cached) and return the single configured agent."""
+    if DEFAULT_MODEL not in _agents:
         from agent.build import build_agent
-        _agents[spec] = build_agent(model=spec, checkpointer=_CHECKPOINTER, store=_STORE)
-    return _agents[spec]
-
-
-@app.get("/models")
-def models():
-    return JSONResponse({"default": DEFAULT_MODEL, "options": available_models()})
+        _agents[DEFAULT_MODEL] = build_agent(model=DEFAULT_MODEL, checkpointer=_CHECKPOINTER, store=_STORE)
+    return _agents[DEFAULT_MODEL]
 
 
 def require_auth(creds: HTTPBasicCredentials = Depends(security)) -> str:
@@ -212,8 +146,8 @@ def _final_text(state) -> str:
     return content
 
 
-def _stream(payload, thread: str, model: str | None = None):
-    agent = get_agent(model)
+def _stream(payload, thread: str):
+    agent = get_agent()
     cfg = {"configurable": {"thread_id": thread}, "recursion_limit": 50}
     pending: dict = {}
     try:
@@ -267,7 +201,7 @@ async def chat(request: Request, user: str = Depends(require_auth)):
     # the live DB so it tracks whatever was last loaded and never goes stale in code.
     primer = _anchor_primer()
     payload = {"messages": [{"role": "user", "content": primer + body["message"]}]}
-    return StreamingResponse(_stream(payload, thread, body.get("model")), media_type="text/event-stream")
+    return StreamingResponse(_stream(payload, thread), media_type="text/event-stream")
 
 
 @app.post("/resume")
@@ -278,7 +212,7 @@ async def resume(request: Request, user: str = Depends(require_auth)):
     approve = bool(body.get("approve"))
     decision = {"type": "approve"} if approve else {"type": "reject", "message": "Not approved by GM."}
     payload = Command(resume={"decisions": [decision]})
-    return StreamingResponse(_stream(payload, thread, body.get("model")), media_type="text/event-stream")
+    return StreamingResponse(_stream(payload, thread), media_type="text/event-stream")
 
 
 # --------------------------------------------------------------------------- #
@@ -413,13 +347,6 @@ footer{position:sticky;bottom:0;background:linear-gradient(180deg,rgba(246,244,2
  background:var(--card);border:1px solid var(--line);border-radius:999px;
  padding:7px 14px;cursor:pointer;white-space:nowrap}
 .chips button:hover{border-color:var(--teal);color:var(--teal-deep)}
-.modelbar{display:flex;justify-content:flex-end;align-items:center;gap:7px;
- padding:0 2px 8px;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;
- text-transform:uppercase;color:var(--faint)}
-.modelbar select{font-family:var(--mono);font-size:11px;letter-spacing:0;
- text-transform:none;color:var(--soft);background:var(--card);border:1px solid var(--line);
- border-radius:7px;padding:4px 9px;cursor:pointer}
-.modelbar select:hover{border-color:var(--teal)}
 .compose{display:flex;gap:10px;background:var(--card);border:1px solid var(--line);
  border-radius:12px;padding:7px 7px 7px 16px;box-shadow:0 10px 26px -20px rgba(27,36,48,.4)}
 .compose:focus-within{border-color:var(--teal)}
@@ -443,7 +370,6 @@ footer{position:sticky;bottom:0;background:linear-gradient(180deg,rgba(246,244,2
 </main>
 
 <footer><div class=dock>
- <div class=modelbar id=modelbar><span>Model</span><select id=model></select></div>
  <div class=chips id=chips></div>
  <div class=compose>
   <input id=q placeholder="What's driving July? Are we too dependent on OTA?" autofocus>
@@ -467,13 +393,6 @@ const chips=document.getElementById('chips');
 SAMPLES.forEach(s=>{const b=document.createElement('button');b.textContent=s;
  b.onclick=()=>{document.getElementById('q').value=s;send();};chips.appendChild(b);});
 
-const modelSel=document.getElementById('model');
-fetch('/models').then(r=>r.json()).then(m=>{
- modelSel.innerHTML=m.options.map(o=>'<option value="'+esc(o.spec)+'"'+
-  (o.spec===m.default?' selected':'')+'>'+esc(o.label)+'</option>').join('');
- if((m.options||[]).length<2)document.getElementById('modelbar').style.display='none';
-}).catch(()=>{document.getElementById('modelbar').style.display='none';});
-function curModel(){return modelSel.value||undefined;}
 
 fetch('/health').then(r=>r.json()).then(h=>{
  const fp=(h.row_hash||h.db_fingerprint||'').slice(0,8);
@@ -561,8 +480,8 @@ async function stream(url,payload){
  }catch(err){working(false);if(turn)turn.root.appendChild(el('div','err','⚠ '+esc(err.message)));}
 }
 function send(){const q=document.getElementById('q');const v=q.value.trim();if(!v)return;
- newTurn(v);q.value='';stream('/chat',{message:v,thread,model:curModel()});}
-function decide(approve){working(true);stream('/resume',{approve,thread,model:curModel()});}
+ newTurn(v);q.value='';stream('/chat',{message:v,thread});}
+function decide(approve){working(true);stream('/resume',{approve,thread});}
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
 </script></body></html>"""
 

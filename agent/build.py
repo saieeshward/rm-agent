@@ -43,7 +43,7 @@ SKILLS_DIR = ROOT / "skills"
 # Backend-relative path (the agent runs on a FilesystemBackend rooted at the repo).
 SKILL_SOURCES = ["skills"]
 
-DEFAULT_MODEL = "anthropic:claude-sonnet-4-6"
+DEFAULT_MODEL = "anthropic:claude-opus-4-8"
 
 # The filesystem backend exists only so the skills middleware can READ SKILL.md
 # files. The agent has no business writing to the repo, so deny every write — this
