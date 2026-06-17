@@ -1,6 +1,6 @@
 ---
 name: cancellation-risk
-description: "Use when the GM asks how much was cancelled, attrition, wash, or how firm the book is. NOT for current on-the-books (use monthly-otb-briefing). Calls get_otb_summary (exclude_cancelled toggle) and get_as_of_otb."
+description: "Use when the GM asks how much was cancelled, attrition, wash, or how firm the book is. NOT for current on-the-books (use monthly-otb-briefing). Calls get_cancellation_summary, with get_as_of_otb vs get_otb_summary for attrition over time."
 ---
 
 # Cancellation risk / attrition

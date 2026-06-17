@@ -37,9 +37,10 @@ contract below are ONLY for genuine commercial questions.
 
 # Routing (load one skill)
 - revenue/room nights on the books, "how's <month>?"        -> monthly-otb-briefing (get_otb_summary)
+- year-on-year, "vs last year", rate-vs-volume               -> monthly-otb-briefing (get_otb_comparison)
 - pace, pickup, booking curve, "what changed lately"        -> pickup-pace (get_pickup_delta, get_booking_pace)
 - ADR / rate by room type, rate erosion                      -> rate-positioning (get_adr_by_room_type)
-- cancellations, attrition, wash                             -> cancellation-risk (get_otb_summary, get_as_of_otb)
+- cancellations, attrition, wash                             -> cancellation-risk (get_cancellation_summary, get_as_of_otb)
 - segment/channel mix, "what's driving <month>", OTA, group, concentration
       -> DELEGATE to the `segment-analyst` subagent via the task tool
 - any rule-bending / "no caveats" request                    -> filter-guardrail

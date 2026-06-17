@@ -32,10 +32,18 @@ The **default on-the-books universe** is `vw_stay_night_base`:
 cancelled rows. Provisional stays are never in default OTB; include them only when a
 question explicitly asks for tentative/uncommitted business.
 
-**Anchor date.** The dataset is forward-looking from "today" and regenerates daily,
-so absolute counts are only valid for the scrape day recorded in
-`etl/SCRAPE_MANIFEST.json` (reconcile with `/verify`). Tools filter by `stay_date`
-month and do **not** silently apply a `stay_date >= today` cut.
+**Anchor date / forward OTB cut.** "On the books" is forward-looking: the default
+current-book tools (`get_otb_summary`, `get_segment_mix`, `get_block_vs_transient_mix`,
+`get_adr_by_room_type`, and the *current* side of `get_otb_comparison`) restrict to
+`stay_date >= anchor`, where the anchor is read from `load_manifest.scraped_at` — **not**
+the wall clock, so it stays fixed for the frozen load and matches `/verify`'s
+`stay_date >= current_date` oracle (`sql/queries.sql`). Effect by month: a future month
+is unchanged; the current month drops already-stayed nights; a fully past month returns
+~nothing (its book is closed). Every cut tool exposes `future_only=False` to recover a
+past month's actuals. Tools that need history or a point in time deliberately do NOT cut:
+the **STLY side** of `get_otb_comparison` (last year is entirely past — a cut would zero
+it), `get_booking_pace` (lead-time curve over the full month, compared to STLY),
+`get_cancellation_summary`, and `get_as_of_otb` (its own `create/cancellation` time logic).
 
 ## Revenue columns
 

@@ -6,10 +6,12 @@ description: "Use when the GM asks what revenue/room nights are on the books for
 # Monthly OTB briefing
 
 **Do (exact).** `get_otb_summary(month)` → `reservation_count` (bookings),
-`room_nights`, `room_revenue`, `total_revenue` (Posted, non-cancelled). Always
-pull STLY (same month, year−1) the same way, and the adjacent month, so you can
-say "ahead/behind", not just a figure. Hand the "why" to `segment-mix-shift` or
-`pickup-pace`.
+`room_nights`, `room_revenue`, `total_revenue` (Posted, non-cancelled). For the
+"vs last year" comparison, call `get_otb_comparison(month)` — it returns the STLY
+figures **and** the precomputed percentage deltas (`deltas.*_pct`) plus the
+rate-vs-volume bridge, so you never compute growth yourself. (Do NOT derive "% ahead
+of STLY" by subtracting two `get_otb_summary` calls — that is forbidden in-head math.)
+Hand the "why" to `segment-mix-shift` or `pickup-pace`.
 
 **Decide:**
 

@@ -30,6 +30,20 @@ LONDON = ZoneInfo("Europe/London")
 _MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 _BASE_VIEWS = {"base": "vw_stay_night_base", "posted": "vw_stay_night_posted"}
 
+# On-the-books is forward-looking: "on the books" means stays from the dataset anchor
+# onward. /verify (and the repo's own sql/queries.sql) define OTB with
+# `stay_date >= current_date`; we read that anchor from load_manifest.scraped_at (NOT the
+# wall clock), so it stays stable for the frozen load and never drifts. The current-book
+# tools apply this cut by default. Tools that need historical / point-in-time rows
+# (get_otb_comparison's STLY side, get_booking_pace, get_cancellation_summary,
+# get_as_of_otb) deliberately do NOT apply it.
+_ANCHOR_SQL = "(select scraped_at::date from public.load_manifest order by load_id desc limit 1)"
+
+
+def _future_cut(future_only: bool) -> str:
+    """SQL fragment restricting to stays on/after the dataset anchor (empty if off)."""
+    return f" and stay_date >= {_ANCHOR_SQL}" if future_only else ""
+
 
 # --------------------------------------------------------------------------- #
 # validation / coercion helpers
@@ -104,7 +118,8 @@ def _agg(sql: str, params: tuple | list) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # 1. get_otb_summary
 # --------------------------------------------------------------------------- #
-def get_otb_summary(stay_month: str, exclude_cancelled: bool = True) -> dict:
+def get_otb_summary(stay_month: str, exclude_cancelled: bool = True,
+                    future_only: bool = True) -> dict:
     """
     On-the-books summary for a calendar month of stay dates (YYYY-MM).
 
@@ -117,6 +132,11 @@ def get_otb_summary(stay_month: str, exclude_cancelled: bool = True) -> dict:
 
     Default universe vw_stay_night_base (Posted, non-cancelled). exclude_cancelled=False
     switches to vw_stay_night_posted (cancelled included; provisional still excluded).
+
+    future_only=True (default) restricts to stays on/after the dataset anchor — the real
+    "on the books" universe, matching /verify. A future month is unaffected; the current
+    month drops already-stayed nights; a fully past month returns ~nothing (its book is
+    closed). Pass future_only=False to get a past/closed month's actuals.
     """
     start, end = _month_range(stay_month)
     keep = _as_bool(exclude_cancelled)
@@ -130,7 +150,7 @@ def get_otb_summary(stay_month: str, exclude_cancelled: bool = True) -> dict:
           coalesce(sum(daily_room_revenue_before_tax), 0)       as room_revenue,
           coalesce(sum(daily_total_revenue_before_tax), 0)      as total_revenue
         from public.{view}
-        where stay_date >= %s and stay_date < %s
+        where stay_date >= %s and stay_date < %s{_future_cut(future_only)}
         """,
         (start, end),
     )
@@ -142,13 +162,15 @@ def get_otb_summary(stay_month: str, exclude_cancelled: bool = True) -> dict:
         "room_revenue": _money(row.get("room_revenue")),
         "total_revenue": _money(row.get("total_revenue")),
         "exclude_cancelled": keep,
+        "future_only": future_only,
     }
 
 
 # --------------------------------------------------------------------------- #
 # 2. get_segment_mix
 # --------------------------------------------------------------------------- #
-def get_segment_mix(stay_month: str, macro_group: str | None = None) -> dict:
+def get_segment_mix(stay_month: str, macro_group: str | None = None,
+                    future_only: bool = True) -> dict:
     """
     Segment mix for a stay month using vw_segment_stay_night (effective macro_group).
 
@@ -156,10 +178,15 @@ def get_segment_mix(stay_month: str, macro_group: str | None = None) -> dict:
     total_revenue = sum(daily_total_revenue_before_tax). Shares are 0-1 and use a
     SINGLE shared denominator = the total over all segments in scope; if macro_group
     is given, scope is restricted to that effective macro_group (shares then sum to
-    1 within it). The denominator is echoed in the payload.
+    1 within it). The denominator is echoed in the payload. OTA reliance is the row
+    where market_code == 'OTA' (Online Travel Agency).
+
+    future_only=True (default) restricts to the on-the-books universe (stays on/after the
+    dataset anchor), matching /verify's otb_room_nights_by_market. Pass False for a past
+    month's actual mix.
     """
     start, end = _month_range(stay_month)
-    where = "stay_date >= %s and stay_date < %s"
+    where = "stay_date >= %s and stay_date < %s" + _future_cut(future_only)
     params: list[Any] = [start, end]
     if macro_group not in (None, ""):
         where += " and lower(effective_macro_group) = lower(%s)"
@@ -227,13 +254,19 @@ def get_segment_mix(stay_month: str, macro_group: str | None = None) -> dict:
 # --------------------------------------------------------------------------- #
 # 3. get_pickup_delta
 # --------------------------------------------------------------------------- #
-def get_pickup_delta(booking_window_days: int, future_stay_from: str) -> dict:
+def get_pickup_delta(booking_window_days: int, future_stay_from: str,
+                     as_of: str | None = None) -> dict:
     """
     Booking pace / pickup: business CREATED recently for future stays.
 
     The window is defined on create_datetime (the BOOKING date), NOT stay_date:
       [start_of_day_London(now - booking_window_days), now], compared in UTC.
     future_stay_from filters to stay_date >= that ISO date.
+
+    "now" is the DATASET ANCHOR (end of the load's scrape day, read from load_manifest),
+    NOT the wall clock — the data is frozen at the anchor, so using real time would slide
+    the window past the data and report zero pickup on any later calendar day. Pass an
+    explicit as_of (ISO-8601) to override (e.g. tests / point-in-time pace).
 
     Grain: new_reservations = distinct reservation_id created in the window;
     new_room_nights = sum(number_of_spaces) of their qualifying stay rows;
@@ -245,7 +278,17 @@ def get_pickup_delta(booking_window_days: int, future_stay_from: str) -> dict:
         raise ValueError(f"booking_window_days must be >= 0; got {booking_window_days!r}")
     stay_from = _parse_date(future_stay_from, "future_stay_from")
 
-    now_utc = datetime.now(timezone.utc)
+    if as_of is not None:
+        now_utc = _parse_utc(as_of, "as_of")
+    else:
+        man = query_one("select scraped_at::date::text as a from public.load_manifest "
+                        "order by load_id desc limit 1") or {}
+        if man.get("a"):
+            ay, am, ad = (int(p) for p in man["a"].split("-"))
+            # end of the anchor day so all bookings made through the scrape day count
+            now_utc = datetime(ay, am, ad, tzinfo=timezone.utc) + timedelta(days=1)
+        else:
+            now_utc = datetime.now(timezone.utc)
     start_london = (now_utc.astimezone(LONDON) - timedelta(days=days)).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
@@ -344,7 +387,7 @@ def get_as_of_otb(stay_month: str, as_of_utc: str) -> dict:
 # --------------------------------------------------------------------------- #
 # 5. get_block_vs_transient_mix
 # --------------------------------------------------------------------------- #
-def get_block_vs_transient_mix(stay_month: str) -> dict:
+def get_block_vs_transient_mix(stay_month: str, future_only: bool = True) -> dict:
     """
     Block (group) vs transient mix for a stay month (vw_stay_night_base).
 
@@ -353,10 +396,15 @@ def get_block_vs_transient_mix(stay_month: str) -> dict:
     nights from get_otb_summary. Shares are 0-1. top_companies are the top 3
     company_name by revenue (NULL company -> 'Transient'); top3_company_revenue_share
     is their combined share of the month's total revenue (<= 1).
+
+    future_only=True (default) restricts to the on-the-books universe (stays on/after the
+    dataset anchor), so block+transient reconciles with get_otb_summary's default. Pass
+    False for a past month's actuals.
     """
     start, end = _month_range(stay_month)
+    cut = _future_cut(future_only)
     agg = _agg(
-        """
+        f"""
         select
           coalesce(sum(number_of_spaces) filter (where is_block), 0)                    as block_room_nights,
           coalesce(sum(number_of_spaces) filter (where not is_block), 0)                as transient_room_nights,
@@ -364,18 +412,18 @@ def get_block_vs_transient_mix(stay_month: str) -> dict:
           coalesce(sum(daily_total_revenue_before_tax) filter (where not is_block), 0)  as transient_total_revenue,
           coalesce(sum(daily_total_revenue_before_tax), 0)                              as month_total_revenue
         from public.vw_stay_night_base
-        where stay_date >= %s and stay_date < %s
+        where stay_date >= %s and stay_date < %s{cut}
         """,
         (start, end),
     )
     companies = query(
-        """
+        f"""
         select
           coalesce(company_name, 'Transient')              as company,
           coalesce(sum(daily_total_revenue_before_tax), 0) as revenue,
           coalesce(sum(number_of_spaces), 0)               as room_nights
         from public.vw_stay_night_base
-        where stay_date >= %s and stay_date < %s
+        where stay_date >= %s and stay_date < %s{cut}
         group by coalesce(company_name, 'Transient')
         order by revenue desc, company
         limit 3
@@ -385,13 +433,13 @@ def get_block_vs_transient_mix(stay_month: str) -> dict:
     # named accounts only (exclude the Transient/no-company bucket) — the honest
     # key-account concentration, computed in code so the model never sums/divides.
     named = query(
-        """
+        f"""
         select
           company_name                                     as company,
           coalesce(sum(daily_total_revenue_before_tax), 0) as revenue,
           coalesce(sum(number_of_spaces), 0)               as room_nights
         from public.vw_stay_night_base
-        where stay_date >= %s and stay_date < %s and company_name is not null
+        where stay_date >= %s and stay_date < %s{cut} and company_name is not null
         group by company_name
         order by revenue desc, company_name
         limit 3
@@ -442,7 +490,7 @@ def get_block_vs_transient_mix(stay_month: str) -> dict:
 # --------------------------------------------------------------------------- #
 # 6. get_adr_by_room_type  (supplementary; answers "highest ADR room type")
 # --------------------------------------------------------------------------- #
-def get_adr_by_room_type(stay_month: str | None = None) -> dict:
+def get_adr_by_room_type(stay_month: str | None = None, future_only: bool = True) -> dict:
     """
     ADR by room type for the OTB universe (vw_stay_night_base), joined to
     room_type_lookup for human names. Supplementary to the five required tools.
@@ -457,13 +505,21 @@ def get_adr_by_room_type(stay_month: str | None = None) -> dict:
     Also returns reservation_count (distinct) and room_nights (sum number_of_spaces).
     Pass stay_month='YYYY-MM' to scope to a month; omit for all OTB. Ordered by
     adr_room_avg descending so the highest-ADR room type is first.
+
+    future_only=True (default) restricts to stays on/after the dataset anchor, matching
+    /verify's adr_by_room_type (which uses the forward OTB cut). Pass False for actuals.
     """
     month_filter = ""
     params: list[Any] = []
+    conds: list[str] = []
     if stay_month not in (None, ""):
         start, end = _month_range(stay_month)
-        month_filter = "where stay_date >= %s and stay_date < %s"
+        conds.append("stay_date >= %s and stay_date < %s")
         params = [start, end]
+    if future_only:
+        conds.append(f"stay_date >= {_ANCHOR_SQL}")
+    if conds:
+        month_filter = "where " + " and ".join(conds)
 
     # adr_room_avg is averaged over DISTINCT reservations (reservation-level rate),
     # while room_nights / room_revenue are summed over stay rows: two grains.
@@ -564,17 +620,17 @@ def get_booking_pace(stay_month: str) -> dict:
 # --------------------------------------------------------------------------- #
 # 8. get_otb_comparison  (supplementary; do the comparison MATH in code, not the LLM)
 # --------------------------------------------------------------------------- #
-def _otb_month_aggregates(stay_month: str) -> dict:
+def _otb_month_aggregates(stay_month: str, future_only: bool = True) -> dict:
     start, end = _month_range(stay_month)
     row = _agg(
-        """
+        f"""
         select
           count(distinct reservation_id)                   as reservation_count,
           coalesce(sum(number_of_spaces), 0)               as room_nights,
           coalesce(sum(daily_room_revenue_before_tax), 0)  as room_revenue,
           coalesce(sum(daily_total_revenue_before_tax), 0) as total_revenue
         from public.vw_stay_night_base
-        where stay_date >= %s and stay_date < %s
+        where stay_date >= %s and stay_date < %s{_future_cut(future_only)}
         """,
         (start, end),
     )
@@ -610,8 +666,10 @@ def get_otb_comparison(stay_month: str) -> dict:
     _month_range(stay_month)  # validate format first
     y, m = stay_month.strip().split("-")
     stly_month = f"{int(y) - 1}-{m}"
-    cur = _otb_month_aggregates(stay_month)
-    stly = _otb_month_aggregates(stly_month)
+    # Current side = forward OTB (anchor cut); STLY = the prior-year month's full actuals
+    # (NOT future-cut — last year is entirely past, so a cut would zero it out).
+    cur = _otb_month_aggregates(stay_month, future_only=True)
+    stly = _otb_month_aggregates(stly_month, future_only=False)
     # bridge from RAW adr (room_revenue / room_nights) so volume + rate == revenue delta exactly
     adr_cur = cur["room_revenue"] / cur["room_nights"] if cur["room_nights"] else 0.0
     adr_stly = stly["room_revenue"] / stly["room_nights"] if stly["room_nights"] else 0.0

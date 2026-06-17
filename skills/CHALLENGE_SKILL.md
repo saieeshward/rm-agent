@@ -13,12 +13,13 @@ table, follow its protocol, answer in the contract shape.
 | GM asks about… | Load | Tool |
 |---|---|---|
 | revenue / room nights on the books, "how's <month>?" | `monthly-otb-briefing` | `get_otb_summary` |
+| year-on-year, "vs last year", is it rate or volume | `monthly-otb-briefing` | `get_otb_comparison` |
 | pace, pickup, "what changed lately" | `pickup-pace` | `get_pickup_delta` |
 | what's driving a month, corporate/leisure/MICE mix | `segment-mix-shift` | `get_segment_mix` |
-| OTA / channel reliance, "too dependent on OTA" | `ota-dependency` | `get_segment_mix` |
+| OTA / channel reliance, "too dependent on OTA" | `ota-dependency` | `get_segment_mix` (market `OTA`) |
 | group vs transient, blocks, key-account concentration | `block-concentration` | `get_block_vs_transient_mix` |
 | ADR / rate by room type, rate erosion | `rate-positioning` | `get_adr_by_room_type` |
-| cancellations, attrition, wash | `cancellation-risk` | `get_otb_summary`, `get_as_of_otb` |
+| cancellations, attrition, wash | `cancellation-risk` | `get_cancellation_summary`, `get_as_of_otb` |
 | any answer (safety net) | `filter-guardrail` | all |
 
 ## Answer contract (every reply)
