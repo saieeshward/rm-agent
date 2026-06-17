@@ -65,12 +65,12 @@ def get_agent(spec: str = PRIMARY_MODEL):
 
 # Manual model switch (speed comparison): an option is offered to the UI only if its
 # provider key is set. Picking one pins the turn to that single model (no fallback),
-# so the measured time is that model's alone. "Auto" (no pick) uses MODEL_CHAIN.
+# so the measured time is that model's alone. The default UI option (empty value) is
+# "gpt-oss-120b" — it runs the MODEL_CHAIN, i.e. the best of Cerebras/OpenRouter
+# (Cerebras for speed, OpenRouter as fallback). Only Claude is offered as an explicit
+# alternative here (kept deliberately generic — no model-tier name shown).
 _MODEL_OPTIONS = [
-    ("cerebras:gpt-oss-120b",               "Cerebras gpt-oss-120b",   "CEREBRAS_API_KEY"),
-    ("openrouter:openai/gpt-oss-120b:free", "OpenRouter gpt-oss-120b",  "OPENROUTER_API_KEY"),
-    ("anthropic:claude-haiku-4-5",          "Claude Haiku 4.5",         "ANTHROPIC_API_KEY"),
-    ("anthropic:claude-opus-4-8",           "Claude Opus 4.8",          "ANTHROPIC_API_KEY"),
+    ("anthropic:claude-haiku-4-5", "Claude", "ANTHROPIC_API_KEY"),
 ]
 
 
@@ -450,7 +450,7 @@ footer{position:sticky;bottom:0;background:linear-gradient(180deg,rgba(246,244,2
  <div class=chips id=chips></div>
  <div class=compose>
   <input id=q placeholder="What's driving July? Are we too dependent on OTA?" autofocus>
-  <select id=model title="Model (Auto = fallback chain)"><option value="">Auto</option></select>
+  <select id=model title="Model"><option value="">gpt-oss-120b</option></select>
   <button class="btn go" onclick=send()>Ask</button>
  </div>
 </div></footer>
@@ -569,7 +569,7 @@ async function stream(url,payload){
 }
 function send(){const q=document.getElementById('q');const v=q.value.trim();if(!v)return;
  const sel=document.getElementById('model');const model=sel?sel.value:'';
- newTurn(v);turn.model=(model&&sel)?sel.options[sel.selectedIndex].text:'Auto';
+ newTurn(v);turn.model=(sel&&sel.selectedIndex>=0)?sel.options[sel.selectedIndex].text:'gpt-oss-120b';
  q.value='';stream('/chat',{message:v,thread,model:model||undefined});}
 function decide(approve){working(true);stream('/resume',{approve,thread});}
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
