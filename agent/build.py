@@ -89,7 +89,7 @@ def resolve_model(model=None):
             api_key=os.environ.get("OPENROUTER_API_KEY"),
             # retry transient provider errors (429 / malformed bursts) so a
             # concurrent spike degrades gracefully instead of failing the turn
-            max_retries=4,
+            max_retries=2,
             timeout=60,
         )
     if spec.startswith("groq:"):
@@ -100,7 +100,7 @@ def resolve_model(model=None):
             temperature=0,
             base_url="https://api.groq.com/openai/v1",
             api_key=os.environ.get("GROQ_API_KEY"),
-            max_retries=4,
+            max_retries=2,
             timeout=60,
         )
     if spec.startswith("cerebras:"):
@@ -111,7 +111,7 @@ def resolve_model(model=None):
             temperature=0,
             base_url="https://api.cerebras.ai/v1",
             api_key=os.environ.get("CEREBRAS_API_KEY"),
-            max_retries=4,
+            max_retries=2,
             timeout=60,
         )
     if spec.startswith("anthropic:"):
@@ -125,12 +125,18 @@ def resolve_model(model=None):
         # count toward ITPM on Opus / Haiku 4.x (no "†" in the rate-limit table), so the
         # burst stops stacking against the per-minute cap. {"type":"ephemeral"} as a
         # top-level kwarg auto-places the breakpoint on the last cacheable block (caches
-        # tools+system+history as a prefix). max_retries rides out any residual 429.
+        # tools+system+history as a prefix).
+        #
+        # max_retries is LOW (2, not 8) on purpose: the server now has a fallback model
+        # chain, so the primary should fail FAST and let the chain fall through rather
+        # than grind through many retry-after backoffs (~30-60s) on a 429'd/over-capped
+        # key before failing over. The chain is the resilience now, not per-model retry.
+        # (If this Anthropic key is healthy, retries rarely trigger and it stays fast.)
         from langchain_anthropic import ChatAnthropic
         return ChatAnthropic(
             model=spec.split(":", 1)[1],
-            timeout=120,
-            max_retries=8,
+            timeout=60,
+            max_retries=2,
             model_kwargs={"cache_control": {"type": "ephemeral"}},
         )
     return spec
