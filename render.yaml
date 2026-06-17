@@ -20,7 +20,7 @@ services:
     name: otel-rm-agent
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: starter         # 512 MB; always-on (no idle spin-down) — kills cold-boot lag
+    plan: free            # 512 MB; spins down when idle, cold-starts on request
     region: frankfurt     # EU, near the London-origin dataset; change if preferred
     healthCheckPath: /health   # unauthenticated; returns the DB fingerprint fields
     autoDeploy: true      # redeploy on push to the default branch

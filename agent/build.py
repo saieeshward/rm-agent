@@ -99,6 +99,18 @@ def resolve_model(model=None):
             max_retries=4,
             timeout=60,
         )
+    if spec.startswith("anthropic:"):
+        # A new account sits at Tier 1 (Opus: 50 RPM / 30k input-tokens-per-minute).
+        # One analytical question fires several tool-call rounds (main + subagent),
+        # together exceeding 30k ITPM in a single minute -> 429. The per-minute
+        # budget resets each minute, so retry with backoff (honoring retry-after)
+        # rides out the reset and lets the turn complete instead of erroring out.
+        from langchain_anthropic import ChatAnthropic
+        return ChatAnthropic(
+            model=spec.split(":", 1)[1],
+            timeout=120,
+            max_retries=8,
+        )
     return spec
 
 SEGMENT_SUBAGENT = {
