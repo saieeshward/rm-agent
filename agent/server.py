@@ -42,14 +42,16 @@ _CHECKPOINTER = MemorySaver()
 _STORE = InMemoryStore()
 _agents: dict[str, object] = {}
 
-# Model chain: the desk tries the primary model first, then each fallback in order
-# if a model errors *before producing any output* (rate limit, provider outage, bad
-# key). Fastest first (Cerebras gpt-oss-120b), free fallback second (OpenRouter
-# gpt-oss-120b). Override at deploy time via MODEL (primary) and MODEL_FALLBACKS
-# (comma-separated). Each spec is "provider:name" — see resolve_model() in build.py.
-PRIMARY_MODEL = os.environ.get("MODEL", "cerebras:gpt-oss-120b")
+# Model chain: the desk runs the primary model, then falls through each fallback (in
+# order) if a model errors *before producing any output* (rate limit, provider outage,
+# bad key). No in-app picker — this chain is the whole story. Default: Claude (Haiku)
+# primary, gpt-oss-120b as fallback (Cerebras for speed, then OpenRouter). Override at
+# deploy time via MODEL (primary) and MODEL_FALLBACKS (comma-separated). Each spec is
+# "provider:name" — see resolve_model() in build.py.
+PRIMARY_MODEL = os.environ.get("MODEL", "anthropic:claude-haiku-4-5")
 FALLBACK_MODELS = [s.strip() for s in
-                   os.environ.get("MODEL_FALLBACKS", "openrouter:openai/gpt-oss-120b:free").split(",")
+                   os.environ.get("MODEL_FALLBACKS",
+                                   "cerebras:gpt-oss-120b,openrouter:openai/gpt-oss-120b:free").split(",")
                    if s.strip()]
 # de-dupe while preserving order; primary always first
 MODEL_CHAIN = list(dict.fromkeys([PRIMARY_MODEL, *FALLBACK_MODELS]))
@@ -61,21 +63,6 @@ def get_agent(spec: str = PRIMARY_MODEL):
         from agent.build import build_agent
         _agents[spec] = build_agent(model=spec, checkpointer=_CHECKPOINTER, store=_STORE)
     return _agents[spec]
-
-
-# Manual model switch (speed comparison): an option is offered to the UI only if its
-# provider key is set. Picking one pins the turn to that single model (no fallback),
-# so the measured time is that model's alone. The default UI option (empty value) is
-# "gpt-oss-120b" — it runs the MODEL_CHAIN, i.e. the best of Cerebras/OpenRouter
-# (Cerebras for speed, OpenRouter as fallback). Only Claude is offered as an explicit
-# alternative here (kept deliberately generic — no model-tier name shown).
-_MODEL_OPTIONS = [
-    ("anthropic:claude-haiku-4-5", "Claude", "ANTHROPIC_API_KEY"),
-]
-
-
-def _available_models() -> list[dict]:
-    return [{"spec": s, "label": l} for s, l, env in _MODEL_OPTIONS if os.environ.get(env)]
 
 
 def require_auth(creds: HTTPBasicCredentials = Depends(security)) -> str:
@@ -266,16 +253,7 @@ async def chat(request: Request, user: str = Depends(require_auth)):
     # the live DB so it tracks whatever was last loaded and never goes stale in code.
     primer = _anchor_primer()
     payload = {"messages": [{"role": "user", "content": primer + body["message"]}]}
-    # Optional manual model pick (speed comparison): pin to that single model if it's
-    # an offered option; otherwise fall back to the default MODEL_CHAIN.
-    picked = body.get("model")
-    chain = [picked] if picked in {o["spec"] for o in _available_models()} else None
-    return StreamingResponse(_stream(payload, thread, chain), media_type="text/event-stream")
-
-
-@app.get("/models")
-def models(user: str = Depends(require_auth)):
-    return JSONResponse({"models": _available_models()})
+    return StreamingResponse(_stream(payload, thread), media_type="text/event-stream")
 
 
 @app.post("/resume")
@@ -450,7 +428,6 @@ footer{position:sticky;bottom:0;background:linear-gradient(180deg,rgba(246,244,2
  <div class=chips id=chips></div>
  <div class=compose>
   <input id=q placeholder="What's driving July? Are we too dependent on OTA?" autofocus>
-  <select id=model title="Model"><option value="">gpt-oss-120b</option></select>
   <button class="btn go" onclick=send()>Ask</button>
  </div>
 </div></footer>
@@ -479,12 +456,6 @@ fetch('/health').then(r=>r.json()).then(h=>{
   (h.financial_status_posted_only_rows||0)+' posted rows · fp '+fp+'</span>';
 }).catch(()=>{});
 
-fetch('/models').then(r=>r.json()).then(d=>{
- const sel=document.getElementById('model');
- (d.models||[]).forEach(m=>{const o=document.createElement('option');
-  o.value=m.spec;o.textContent=m.label;sel.appendChild(o);});
-}).catch(()=>{});
-
 function el(tag,cls,html){const d=document.createElement(tag);if(cls)d.className=cls;
  if(html!=null)d.innerHTML=html;return d;}
 function esc(s){return (s==null?'':String(s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
@@ -497,7 +468,7 @@ function newTurn(q){
  t.appendChild(el('div','ask','<div class=eyebrow>You asked</div><div class=q>'+esc(q)+'</div>'));
  const tape=el('div','tape');tape.appendChild(el('div','eyebrow','&nbsp;Work tape'));
  t.appendChild(tape);log.appendChild(t);
- turn={root:t,tape:tape,t0:performance.now(),model:'Auto'};working(true);scroll();
+ turn={root:t,tape:tape,t0:performance.now()};working(true);scroll();
 }
 function working(on){
  if(!turn)return;let w=turn.tape.querySelector('.work');
@@ -526,7 +497,7 @@ function briefing(text){
   '<div class=doc>'+marked.parse(text||'')+'</div>');
  turn.root.appendChild(c);
  if(turn.t0){const secs=((performance.now()-turn.t0)/1000).toFixed(1);
-  turn.root.appendChild(el('div','meta','responded in '+secs+'s · '+esc(turn.model||'Auto')));}
+  turn.root.appendChild(el('div','meta','responded in '+secs+'s'));}
  scroll();
 }
 function approval(){
@@ -568,9 +539,7 @@ async function stream(url,payload){
  }catch(err){working(false);if(turn)turn.root.appendChild(el('div','err','⚠ '+esc(err.message)));}
 }
 function send(){const q=document.getElementById('q');const v=q.value.trim();if(!v)return;
- const sel=document.getElementById('model');const model=sel?sel.value:'';
- newTurn(v);turn.model=(sel&&sel.selectedIndex>=0)?sel.options[sel.selectedIndex].text:'gpt-oss-120b';
- q.value='';stream('/chat',{message:v,thread,model:model||undefined});}
+ newTurn(v);q.value='';stream('/chat',{message:v,thread});}
 function decide(approve){working(true);stream('/resume',{approve,thread});}
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
 </script></body></html>"""

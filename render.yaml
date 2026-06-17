@@ -25,15 +25,15 @@ services:
     healthCheckPath: /health   # unauthenticated; returns the DB fingerprint fields
     autoDeploy: true      # redeploy on push to the default branch
     envVars:
-      # Model chain: the desk tries MODEL first, then each MODEL_FALLBACKS entry (in
-      # order) if a model errors before producing output. Cerebras gpt-oss-120b (fast)
-      # primary; OpenRouter gpt-oss-120b (free) fallback. Set the matching provider
-      # key(s) below (CEREBRAS_API_KEY / OPENROUTER_API_KEY). To run Claude instead,
-      # set MODEL=anthropic:claude-opus-4-8 and provide a funded ANTHROPIC_API_KEY.
+      # Model chain (no in-app picker): the desk runs MODEL, then falls through each
+      # MODEL_FALLBACKS entry (in order) if a model errors before producing output.
+      # Claude (Haiku) primary; gpt-oss-120b fallback (Cerebras for speed, then
+      # OpenRouter). Provide ANTHROPIC_API_KEY (+ CEREBRAS_API_KEY / OPENROUTER_API_KEY
+      # for the fallbacks) below.
       - key: MODEL
-        value: cerebras:gpt-oss-120b
+        value: anthropic:claude-haiku-4-5
       - key: MODEL_FALLBACKS
-        value: openrouter:openai/gpt-oss-120b:free
+        value: cerebras:gpt-oss-120b,openrouter:openai/gpt-oss-120b:free
       - key: OPENROUTER_API_KEY
         sync: false
       # Optional extra model providers — set the key to make that model appear in
