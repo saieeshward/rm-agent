@@ -1,27 +1,46 @@
 name: keep-warm
 
-# Free cold-boot mitigation: ping the unauthenticated /health endpoint on a
-# schedule so the Render free instance never spins down (and Neon stays awake,
-# since /health runs a real DB query). GitHub-hosted, $0, no external service.
-# Note: scheduled runs can be delayed several minutes under GitHub load; a 5-min
-# cadence leaves margin under Render's ~15-min idle-to-sleep threshold even if a
-# run is skipped/delayed. Repo is public, so Actions minutes are free/unlimited.
+# Free cold-boot mitigation: keep the Render free instance from spinning down by
+# pinging the unauthenticated /health endpoint continuously (this also keeps Neon
+# awake, since /health runs a real DB query). GitHub-hosted, $0, no external service.
+#
+# Why a self-looping job instead of one ping per run: GitHub's scheduled crons are
+# routinely delayed 5-30 min or skipped entirely under load. A "ping once per run"
+# workflow opens a >15-min gap whenever a cron slips, and Render sleeps. Instead,
+# each run LOOPS — pinging every 3 min for up to ~85 min — so a single triggered run
+# covers a long window and survives several skipped crons. The cron restarts the
+# loop every 30 min; `cancel-in-progress` makes each fresh run replace a possibly
+# stuck older one, so there's exactly one pinger and coverage stays continuous.
+#
+# Note: Render free also caps at ~750 instance-hours/month (~744 in a 31-day month),
+# so 24/7 warm just fits — leave no other free service running in this account.
+# The most reliable option is still an external monitor (cron-job.org / UptimeRobot)
+# hitting the same URL every 5 min; see README. This workflow is the in-repo $0 path.
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/30 * * * *"   # restart the loop every 30 min (skip-tolerant; see below)
   workflow_dispatch: {}
+
+# One pinger at a time; a new scheduled run cancels a possibly-stuck older one.
+concurrency:
+  group: keep-warm
+  cancel-in-progress: true
 
 jobs:
   ping:
     runs-on: ubuntu-latest
+    timeout-minutes: 90   # keep pinging up to ~85 min if the next cron is delayed/skipped
     steps:
-      - name: Ping /health (retry through a possible cold boot)
+      - name: Keep Render warm (ping /health every 3 min)
         run: |
           url="https://otel-rm-agent.onrender.com/health"
-          for i in 1 2 3; do
-            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 90 "$url") || code=000
-            if [ "$code" = "200" ]; then echo "warm (HTTP $code)"; exit 0; fi
-            echo "attempt $i: HTTP $code — retrying in 30s"; sleep 30
+          end=$((SECONDS + 5100))   # ~85 min of coverage per run
+          n=0
+          while [ "$SECONDS" -lt "$end" ]; do
+            n=$((n + 1))
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 90 "$url" || echo 000)
+            echo "$(date -u +%H:%M:%S) ping $n -> HTTP $code"
+            [ "$code" = "200" ] || echo "::warning::/health returned HTTP $code"
+            sleep 180   # every 3 min — well under Render's ~15-min idle-to-sleep
           done
-          echo "::warning::/health did not return 200 after 3 attempts"

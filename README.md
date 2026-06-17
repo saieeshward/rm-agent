@@ -53,13 +53,21 @@ same thing over 443. Either way the printed `row_hash` must equal `etl/LOAD_PROO
 | Var | Value |
 |-----|-------|
 | `DATABASE_URL` | the same Neon string from step 1 |
-| `MODEL` | `google_genai:gemini-2.5-flash` (default; the UI can switch per turn) |
+| `MODEL` | `anthropic:claude-haiku-4-5` (primary) |
+| `MODEL_FALLBACKS` | `cerebras:gpt-oss-120b,openrouter:openai/gpt-oss-120b:free` (tried in order if the primary errors before producing output) |
 | `BASIC_AUTH_USER` / `BASIC_AUTH_PASS` | `gm` / your password |
-| model-provider keys | any of `GOOGLE_API_KEY`, `CEREBRAS_API_KEY`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`; each one lights up its models in the in-app switcher |
+| model-provider keys | `ANTHROPIC_API_KEY` (primary) plus `CEREBRAS_API_KEY` / `OPENROUTER_API_KEY` for the fallbacks |
 
 The Dockerfile binds uvicorn to `$PORT`. Note: deploying from a public-repo URL keeps
 **auto-deploy off**, so new commits need a service **Manual Deploy → Deploy latest commit**;
 the free instance also spins down when idle (~50 s cold start).
+
+**Keep-warm (avoid cold starts).** `.github/workflows/keep-warm.yml` self-loops, pinging
+`/health` every 3 min to hold the free instance (and Neon) awake — resilient to GitHub's
+frequently-delayed scheduled crons. For maximum reliability, also point an external monitor
+([cron-job.org](https://cron-job.org) or [UptimeRobot](https://uptimerobot.com)) at
+`https://otel-rm-agent.onrender.com/health` every 5 min (expect HTTP 200). The guaranteed
+fix is upgrading the Render instance to **Starter** (always-on, no spin-down).
 
 **3. Verify.**
 
