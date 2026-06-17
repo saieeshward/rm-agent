@@ -239,15 +239,33 @@ def _stream(payload, thread: str, model: str | None = None):
     yield _sse({"type": "done"})
 
 
+def _anchor_primer() -> str:
+    """Build the date primer from the live dataset anchor (load_manifest.scraped_at),
+    so 'today' and the default stay month track whatever was last loaded and never go
+    stale in code. Falls back to a sane default if the manifest can't be read."""
+    anchor = "2026-06-16"
+    try:
+        man = query_one("select scraped_at::date::text as anchor "
+                        "from public.load_manifest order by load_id desc limit 1") or {}
+        anchor = man.get("anchor") or anchor
+    except Exception:
+        pass
+    y, m, _d = (int(p) for p in anchor.split("-"))
+    ny, nm = (y + 1, 1) if m == 12 else (y, m + 1)
+    upcoming = f"{ny:04d}-{nm:02d}"
+    return (f"(Context: treat today as {anchor} — the dataset anchor. Stay months "
+            f"are 'YYYY-MM'; if a month isn't specified, use the upcoming month "
+            f"{upcoming}. STLY = same month, year minus one.)\n\n")
+
+
 @app.post("/chat")
 async def chat(request: Request, user: str = Depends(require_auth)):
     body = await request.json()
     thread = body.get("thread", "web")
     # Pin "today" to the dataset anchor (the data is locked to this load), so the
-    # agent never drifts to a wrong month over the 7-day window or guesses a past year.
-    primer = ("(Context: treat today as 2026-06-16 — the dataset anchor. Stay months "
-              "are 'YYYY-MM'; if a month isn't specified, use the upcoming month "
-              "2026-07. STLY = same month, year minus one.)\n\n")
+    # agent never drifts to a wrong month or guesses a past year. Read the anchor from
+    # the live DB so it tracks whatever was last loaded and never goes stale in code.
+    primer = _anchor_primer()
     payload = {"messages": [{"role": "user", "content": primer + body["message"]}]}
     return StreamingResponse(_stream(payload, thread, body.get("model")), media_type="text/event-stream")
 

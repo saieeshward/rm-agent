@@ -46,9 +46,21 @@ def main() -> None:
     # answer needs well over the LangGraph default; 50 allows that yet still
     # halts a runaway (e.g. a small model re-calling the same tool dozens of times).
     config = {"configurable": {"thread_id": args.thread}, "recursion_limit": 50}
-    today = datetime.date.today().isoformat()
-    primer = (f"(Context: today is {today}; dataset anchor ~2026-06-16; "
-              f"stay months are 'YYYY-MM', STLY = year minus one.)\n\n")
+    # Anchor "today" to the loaded dataset (read from the DB so it never goes stale in
+    # code); fall back to the real clock if the manifest can't be read.
+    anchor = datetime.date.today().isoformat()
+    try:
+        from tools.db import query_one
+        man = query_one("select scraped_at::date::text as anchor "
+                        "from public.load_manifest order by load_id desc limit 1") or {}
+        anchor = man.get("anchor") or anchor
+    except Exception:
+        pass
+    y, m, _d = (int(p) for p in anchor.split("-"))
+    ny, nm = (y + 1, 1) if m == 12 else (y, m + 1)
+    primer = (f"(Context: treat today as {anchor} — the dataset anchor; if a month "
+              f"isn't specified use the upcoming month {ny:04d}-{nm:02d}. Stay months "
+              f"are 'YYYY-MM', STLY = year minus one.)\n\n")
     payload: object = {"messages": [{"role": "user", "content": primer + args.question}]}
 
     from langgraph.errors import GraphRecursionError

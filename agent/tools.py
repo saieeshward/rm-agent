@@ -21,6 +21,7 @@ from tools.revenue_tools import (
     get_block_vs_transient_mix,
     get_booking_pace,
     get_cancellation_summary,
+    get_channel_mix,
     get_otb_comparison,
     get_otb_summary,
     get_pickup_delta,
@@ -37,6 +38,7 @@ otb_comparison_tool = StructuredTool.from_function(get_otb_comparison)
 cancellation_tool = StructuredTool.from_function(get_cancellation_summary)
 segment_mix_tool = StructuredTool.from_function(get_segment_mix)
 block_vs_transient_tool = StructuredTool.from_function(get_block_vs_transient_mix)
+channel_mix_tool = StructuredTool.from_function(get_channel_mix)
 
 MAIN_TOOLS = [
     otb_summary_tool,
@@ -50,6 +52,7 @@ MAIN_TOOLS = [
 SEGMENT_TOOLS = [
     segment_mix_tool,
     block_vs_transient_tool,
+    channel_mix_tool,
 ]
 ALL_TOOLS = MAIN_TOOLS + SEGMENT_TOOLS
 

@@ -681,6 +681,96 @@ def get_cancellation_summary(stay_month: str) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# 10. get_channel_mix  (channel / OTA reliance — the ONLY tool with a channel grain)
+# --------------------------------------------------------------------------- #
+def get_channel_mix(stay_month: str, channel_group: str | None = None) -> dict:
+    """
+    Channel mix for a stay month from vw_stay_night_base joined to channel_code_lookup.
+
+    This is the ONLY tool that measures OTA / channel reliance. In this dataset 'OTA'
+    business is the 'WEB' channel ('Web / OTA Web', channel_group 'Digital'); there is
+    NO 'OTA' market segment, so get_segment_mix CANNOT answer channel/OTA questions.
+
+    Grain: stay-date rows grouped by channel. room_nights = sum(number_of_spaces),
+    total_revenue = sum(daily_total_revenue_before_tax). Shares are 0-1 over a single
+    shared denominator (all channels in scope), each with a *_pct field (1 dp) so the
+    model never multiplies by 100. The ota_* convenience fields surface the WEB channel
+    directly for "are we too dependent on OTA" questions. Pass channel_group to scope to
+    one group (Digital / Direct / Offline). Call on the STLY month to compare the trend.
+    """
+    start, end = _month_range(stay_month)
+    where = "r.stay_date >= %s and r.stay_date < %s"
+    params: list[Any] = [start, end]
+    if channel_group not in (None, ""):
+        where += " and lower(cl.channel_group) = lower(%s)"
+        params.append(channel_group)
+    rows = query(
+        f"""
+        select
+          cl.channel_code, cl.channel_name, cl.channel_group,
+          coalesce(sum(r.number_of_spaces), 0)               as room_nights,
+          coalesce(sum(r.daily_total_revenue_before_tax), 0) as total_revenue
+        from public.vw_stay_night_base r
+        join public.channel_code_lookup cl on cl.channel_code = r.channel_code
+        where {where}
+        group by cl.channel_code, cl.channel_name, cl.channel_group
+        order by total_revenue desc, room_nights desc, cl.channel_code
+        """,
+        params,
+    )
+    denom_rn = float(sum(_i(r["room_nights"]) for r in rows))
+    denom_rev = float(sum(_f(r["total_revenue"]) for r in rows))
+    channels = [
+        {
+            "channel_code": r["channel_code"],
+            "channel_name": r["channel_name"],
+            "channel_group": r["channel_group"],
+            "room_nights": _i(r["room_nights"]),
+            "total_revenue": _money(r["total_revenue"]),
+            "share_of_room_nights": _share(r["room_nights"], denom_rn),
+            "share_of_revenue": _share(r["total_revenue"], denom_rev),
+            "share_of_revenue_pct": _pct_of(r["total_revenue"], denom_rev),
+        }
+        for r in rows
+    ]
+    # channel-group rollup (Digital / Direct / Offline), computed in code
+    roll: dict[str, dict[str, float]] = {}
+    for r in rows:
+        g = roll.setdefault(r["channel_group"], {"room_nights": 0.0, "total_revenue": 0.0})
+        g["room_nights"] += _i(r["room_nights"])
+        g["total_revenue"] += _f(r["total_revenue"])
+    group_rollup = sorted(
+        ({
+            "channel_group": g,
+            "room_nights": int(v["room_nights"]),
+            "total_revenue": round(v["total_revenue"], 2),
+            "share_of_room_nights": _share(v["room_nights"], denom_rn),
+            "share_of_revenue": _share(v["total_revenue"], denom_rev),
+            "share_of_revenue_pct": _pct_of(v["total_revenue"], denom_rev),
+        } for g, v in roll.items()),
+        key=lambda x: x["total_revenue"], reverse=True,
+    )
+    # OTA convenience: the WEB channel IS the OTA-web channel in this dataset, so the
+    # skill reads a real number instead of guessing an "OTA" segment that doesn't exist.
+    ota = next((c for c in channels if c["channel_code"] == "WEB"), None)
+    return {
+        "stay_month": stay_month,
+        "channel_group": channel_group if channel_group not in (None, "") else None,
+        "channel_count": len(channels),
+        "denominator_room_nights": int(denom_rn),
+        "denominator_revenue": round(denom_rev, 2),
+        "channels": channels,
+        "group_rollup": group_rollup,
+        "ota_channel_code": "WEB",
+        "ota_share_of_revenue": ota["share_of_revenue"] if ota else 0.0,
+        "ota_share_of_revenue_pct": ota["share_of_revenue_pct"] if ota else 0.0,
+        "ota_share_of_room_nights": ota["share_of_room_nights"] if ota else 0.0,
+        "ota_room_nights": ota["room_nights"] if ota else 0,
+        "ota_total_revenue": ota["total_revenue"] if ota else 0.0,
+    }
+
+
 # The five tools the brief mandates by exact name (no run_sql escape hatch).
 REQUIRED_TOOLS = [
     get_otb_summary,
@@ -694,4 +784,5 @@ REQUIRED_TOOLS = [
 # year-on-year comparison tools — the supplementary tools keep all arithmetic in code).
 ALL_TOOLS = REQUIRED_TOOLS + [
     get_adr_by_room_type, get_booking_pace, get_otb_comparison, get_cancellation_summary,
+    get_channel_mix,
 ]
