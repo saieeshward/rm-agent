@@ -106,8 +106,7 @@ SEGMENT_SUBAGENT = {
     "description": (
         "Segment & concentration analyst. Delegate any question about segment/market "
         "mix, what is driving a month, OTA/channel reliance, group vs transient, or "
-        "key-account concentration. Uses get_segment_mix, get_channel_mix (OTA/channel), "
-        "and get_block_vs_transient_mix."
+        "key-account concentration. Uses get_segment_mix and get_block_vs_transient_mix."
     ),
     "system_prompt": SEGMENT_ANALYST_PROMPT,
     "tools": SEGMENT_TOOLS,

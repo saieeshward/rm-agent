@@ -1,22 +1,22 @@
 ---
 name: ota-dependency
-description: "Use when the GM asks 'are we too dependent on OTA', about Booking.com/Expedia exposure, commission cost, OTA share, or direct-vs-OTA balance. NOT for overall segment drivers — use segment-mix-shift. Calls get_channel_mix."
+description: "Use when the GM asks 'are we too dependent on OTA', about Booking.com/Expedia exposure, commission cost, OTA share, or direct-vs-OTA balance. NOT for overall segment drivers — use segment-mix-shift. Calls get_segment_mix."
 ---
 
 # OTA dependency
 
-**Grounding (read this first).** OTA is a *channel*, not a market segment. In this
-dataset OTA business is the `WEB` channel ("Web / OTA Web", channel_group `Digital`).
-`get_segment_mix` only knows market segments (Corporate, Leisure, MICE, Retail …) and
-has **no OTA** — never read an "OTA" share from it. Use `get_channel_mix`, which has
-the real channel grain.
+**Grounding.** OTA is the market segment `OTA` ("Online Travel Agency") — this is the
+dataset's authoritative OTA dimension (it is what `/verify` reconciles as
+`otb_room_nights_by_market.OTA`). Read it from `get_segment_mix`.
 
-**Do (exact).** `get_channel_mix(month)` → read `ota_share_of_revenue_pct` (the WEB
-channel's share of total revenue). Call `get_channel_mix(STLY_month)` (same month,
-year−1) the same way to see whether the share is rising. If the date is high-demand,
-confirm with `get_otb_summary` before acting.
+**Do (exact).** `get_segment_mix(month)` → in `segments`, take the row where
+`market_code == 'OTA'` and read its `share_of_revenue_pct`. Call
+`get_segment_mix(STLY_month)` (same month, year−1) the same way to see whether the
+share is rising. If the date is high-demand, confirm with `get_otb_summary` before
+acting. (If no `OTA` row is present for the month, OTA share is effectively 0 — say so;
+do not substitute another segment.)
 
-**Decide** — OTA `ota_share_of_revenue_pct`:
+**Decide** — OTA `share_of_revenue_pct` of the `OTA` market row:
 
 | share | read | action |
 |---|---|---|
@@ -32,7 +32,7 @@ is fine (fill the hotel); the same share in a *strong* month is margin you are
 giving away — that is where you act. A rising OTA share on flat total revenue means
 you are buying the same business at higher cost.
 
-**Answer like (no action).** "OTA is 17% of July revenue (19% STLY) — modest and
+**Answer like (no action).** "OTA is 15% of July revenue (17% STLY) — modest and
 slightly *down* year-on-year, so you're not too dependent; there's headroom to use
 OTA tactically in soft weeks. No action on July."
 
@@ -41,7 +41,7 @@ OTA tactically in soft weeks. No action on July."
 OTA-only rates, and cap or close OTA allocation on the compression dates so
 commissionable rooms don't crowd out direct demand."
 
-**Don't** confuse `ota_share_of_revenue_pct` with `ota_share_of_room_nights` — OTA's
-room-night share runs higher because it books lower-rated rooms. Quote revenue share
-for the dependency call. Never quote an OTA number that did not come from
-`get_channel_mix`.
+**Don't** confuse `share_of_revenue` with `share_of_room_nights` — OTA's room-night
+share runs higher because it books lower-rated rooms. Quote revenue share for the
+dependency call. Never read an "OTA" total off any field other than the `OTA` market
+row from `get_segment_mix`.
