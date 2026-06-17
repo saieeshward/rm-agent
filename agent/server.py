@@ -65,6 +65,20 @@ def get_agent(spec: str = PRIMARY_MODEL):
     return _agents[spec]
 
 
+@app.on_event("startup")
+def _prewarm_agent():
+    """Build the primary agent at startup so the FIRST user question doesn't pay the
+    ~7s lazy deepagents/langgraph construction. Build is DB-independent (the tools query
+    the DB only when called), so it's safe even if the DB is briefly unreachable at boot.
+    Best-effort: a build failure (e.g. a missing provider key) is swallowed so the server
+    still comes up and the lazy path retries on the first request. Fallback-chain models
+    stay lazy — they build on first use, which is rare."""
+    try:
+        get_agent()
+    except Exception:
+        pass
+
+
 def require_auth(creds: HTTPBasicCredentials = Depends(security)) -> str:
     ok = secrets.compare_digest(creds.username, USER) and secrets.compare_digest(creds.password, PASSWORD)
     if not ok:
